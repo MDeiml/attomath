@@ -1,4 +1,15 @@
+#[macro_use]
+extern crate diesel;
+extern crate bincode;
 extern crate nom;
+extern crate serde;
+
+mod schema;
+
+use diesel::prelude::*;
+use diesel::sqlite::{Sqlite, SqliteConnection};
+use schema::*;
+use serde::{Deserialize, Serialize};
 
 use nom::{
     branch::alt,
@@ -10,7 +21,8 @@ use nom::{
     sequence::{delimited, preceded, tuple},
     IResult,
 };
-use std::collections::BTreeMap;
+
+type DB = Sqlite;
 
 type Judgement = u16;
 type Identifier = i16;
@@ -29,6 +41,40 @@ pub struct Theorem {
     conclusion: Statement,
     assumptions: Vec<Statement>,
     dvrs: Vec<DVR>,
+}
+
+#[derive(Insertable)]
+#[table_name = "theorem"]
+pub struct DBInsertTheorem {
+    conclusion: Vec<u8>,
+    assumptions: Vec<u8>,
+    dvrs: Vec<u8>,
+    description: Option<String>,
+}
+
+impl Insertable<theorem::table> for &Theorem {
+    type Values = <DBInsertTheorem as Insertable<theorem::table>>::Values;
+
+    fn values(self) -> Self::Values {
+        Insertable::values(DBInsertTheorem {
+            conclusion: bincode::serialize(&self.conclusion).unwrap(),
+            assumptions: bincode::serialize(&self.assumptions).unwrap(),
+            dvrs: bincode::serialize(&self.dvrs).unwrap(),
+            description: None,
+        })
+    }
+}
+
+impl Queryable<theorem::SqlType, DB> for Theorem {
+    type Row = (i32, Vec<u8>, Vec<u8>, Vec<u8>, Option<String>);
+
+    fn build((_id, conclusion, assumptions, dvrs, _name): Self::Row) -> Self {
+        Theorem {
+            conclusion: bincode::deserialize(&conclusion).unwrap(),
+            assumptions: bincode::deserialize(&assumptions).unwrap(),
+            dvrs: bincode::deserialize(&dvrs).unwrap(),
+        }
+    }
 }
 
 impl Theorem {
@@ -201,7 +247,7 @@ impl Theorem {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Statement {
     judgement: Judgement,
     expression: OwnedExpression,
@@ -322,7 +368,7 @@ impl<'a> Substitution<'a> {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OwnedExpression {
     data: Box<[Identifier]>,
 }
@@ -510,7 +556,7 @@ fn is_operator(x: &Identifier) -> bool {
     x < &0
 }
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
 struct DVR(Identifier, Identifier);
 
 impl DVR {
@@ -690,54 +736,54 @@ impl Formatter {
     }
 }
 
-pub struct MemoryDatabase {
-    theorems: Vec<Theorem>,
-    by_conclusion: BTreeMap<Statement, usize>,
-}
+// pub struct MemoryDatabase {
+//     theorems: Vec<Theorem>,
+//     by_conclusion: BTreeMap<Statement, usize>,
+// }
 
-impl MemoryDatabase {
-    pub fn new() -> Self {
-        MemoryDatabase {
-            theorems: Vec::new(),
-            by_conclusion: BTreeMap::new(),
-        }
-    }
-}
+// impl MemoryDatabase {
+//     pub fn new() -> Self {
+//         MemoryDatabase {
+//             theorems: Vec::new(),
+//             by_conclusion: BTreeMap::new(),
+//         }
+//     }
+// }
 
-impl<'a> Database for MemoryDatabase {
-    fn get(&self, index: usize) -> &Theorem {
-        &self.theorems[index]
-    }
+// impl<'a> Database for MemoryDatabase {
+//     fn get(&self, index: usize) -> &Theorem {
+//         &self.theorems[index]
+//     }
 
-    fn insert(&mut self, theorem: Theorem) -> usize {
-        let index = self.theorems.len();
-        self.theorems.push(theorem);
-        self.by_conclusion
-            .insert(self.theorems[index].conclusion.clone(), index);
-        index
-    }
+//     fn insert(&mut self, theorem: Theorem) -> usize {
+//         let index = self.theorems.len();
+//         self.theorems.push(theorem);
+//         self.by_conclusion
+//             .insert(self.theorems[index].conclusion.clone(), index);
+//         index
+//     }
 
-    fn conclusion_matching<'b>(
-        &'b self,
-        conclusion: &Statement,
-    ) -> Box<dyn Iterator<Item = &Theorem> + 'b> {
-        let (from, to) = conclusion.match_bounds();
-        Box::new(
-            self.by_conclusion
-                .range(from..to)
-                .map(move |(_, i)| &self.theorems[*i]),
-        )
-    }
-}
+//     fn conclusion_matching<'b>(
+//         &'b self,
+//         conclusion: &Statement,
+//     ) -> Box<dyn Iterator<Item = &Theorem> + 'b> {
+//         let (from, to) = conclusion.match_bounds();
+//         Box::new(
+//             self.by_conclusion
+//                 .range(from..to)
+//                 .map(move |(_, i)| &self.theorems[*i]),
+//         )
+//     }
+// }
 
-trait Database {
-    fn get(&self, index: usize) -> &Theorem;
-    fn insert(&mut self, theorem: Theorem) -> usize;
-    fn conclusion_matching<'a>(
-        &'a self,
-        conclusion: &Statement,
-    ) -> Box<dyn Iterator<Item = &Theorem> + 'a>;
-}
+// trait Database {
+//     fn get(&self, index: usize) -> &Theorem;
+//     fn insert(&mut self, theorem: Theorem) -> usize;
+//     fn conclusion_matching<'a>(
+//         &'a self,
+//         conclusion: &Statement,
+//     ) -> Box<dyn Iterator<Item = &Theorem> + 'a>;
+// }
 
 fn parse_statement<'a>(fmt: &Formatter, input: &'a str) -> Statement {
     all_consuming(|s| Statement::parse(fmt, s))(input)
@@ -750,26 +796,42 @@ fn parse_theorem<'a>(fmt: &Formatter, input: &'a str) -> Theorem {
 }
 
 fn main() {
+    let database_url = "test.db";
+    let conn = SqliteConnection::establish(database_url).unwrap();
+
     let fmt = Formatter {
         operators: vec![("->", true), ("-.", false)],
         judgements: vec!["wff", "|-"],
     };
-    let mut db = MemoryDatabase::new();
+
     let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");
-    let ax1 = parse_theorem(&fmt, "wff x0, wff x1 => |- (x0 -> (x1 -> x0))");
-    let ax2 = parse_theorem(
-        &fmt,
-        "wff x0, wff x1, wff x2 => |- ((x0 -> (x1 -> x2)) -> ((x0 -> x1) -> (x0 -> x2)))",
-    );
-    let ax_mp = parse_theorem(&fmt, "|- x0, |- (x0 -> x1) => |- x1");
-    db.insert(wff2);
-    db.insert(ax1);
-    db.insert(ax2);
-    db.insert(ax_mp);
-    let test = parse_statement(&fmt, "|- ((x0 -> x1) -> x2)");
-    for th in db.conclusion_matching(&test) {
-        println!("{}", th.format(&fmt));
-    }
+    diesel::insert_into(theorem::table)
+        .values(&wff2)
+        .execute(&conn)
+        .unwrap();
+    let ts = (theorem::table).limit(1).load::<Theorem>(&conn).unwrap();
+    println!("{}", ts[0].format(&fmt));
+
+    // let fmt = Formatter {
+    //     operators: vec![("->", true), ("-.", false)],
+    //     judgements: vec!["wff", "|-"],
+    // };
+    // let mut db = MemoryDatabase::new();
+    // let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");
+    // let ax1 = parse_theorem(&fmt, "wff x0, wff x1 => |- (x0 -> (x1 -> x0))");
+    // let ax2 = parse_theorem(
+    //     &fmt,
+    //     "wff x0, wff x1, wff x2 => |- ((x0 -> (x1 -> x2)) -> ((x0 -> x1) -> (x0 -> x2)))",
+    // );
+    // let ax_mp = parse_theorem(&fmt, "|- x0, |- (x0 -> x1) => |- x1");
+    // db.insert(wff2);
+    // db.insert(ax1);
+    // db.insert(ax2);
+    // db.insert(ax_mp);
+    // let test = parse_statement(&fmt, "|- ((x0 -> x1) -> x2)");
+    // for th in db.conclusion_matching(&test) {
+    //     println!("{}", th.format(&fmt));
+    // }
 
     // let t1 = ax1.simplify(&0, &1).unwrap();
     // let w1 = wff2.simplify(&0, &1).unwrap();
