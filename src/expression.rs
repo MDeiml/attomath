@@ -1,12 +1,8 @@
 use crate::{error::ProofError, formatter::Formatter, substitution::Substitution, types::*};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{char, digit1, space0, space1},
-    combinator::{all_consuming, map, map_opt},
+    combinator::map,
     error::{context, VerboseError},
-    multi::separated_list,
-    sequence::{delimited, preceded, tuple},
     IResult,
 };
 use serde::{Deserialize, Serialize};

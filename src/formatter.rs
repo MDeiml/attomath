@@ -1,11 +1,10 @@
-use crate::{error::ProofError, types::*};
+use crate::types::*;
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
+    bytes::complete::take_while1,
     character::complete::{char, digit1, space0, space1},
-    combinator::{all_consuming, map, map_opt},
+    combinator::{map, map_opt},
     error::{context, VerboseError},
-    multi::separated_list,
     sequence::{delimited, preceded, tuple},
     IResult,
 };

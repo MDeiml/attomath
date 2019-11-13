@@ -1,4 +1,4 @@
-use crate::{formatter::Formatter, types::*};
+use crate::types::*;
 
 #[derive(Debug)]
 pub struct Substitution<'a> {
