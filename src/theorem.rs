@@ -154,13 +154,16 @@ impl Theorem {
                     assumptions,
                     dvrs,
                 };
-                t.standardize();
+                t.standardize().unwrap();
                 t
             },
         )(input)
     }
 
-    pub fn standardize(&mut self) {
+    pub fn standardize(&mut self) -> Result<(), ProofError> {
+        if self.assumptions.contains(&self.conclusion) {
+            return Err(ProofError::Tautology);
+        }
         let max_var = self.max_var();
         let mut var_map = vec![None; max_var as usize + 1];
         let mut next_var = 0;
@@ -172,7 +175,10 @@ impl Theorem {
             dvr.standardize(&var_map);
         }
         self.assumptions.sort();
+        self.assumptions.dedup();
         self.dvrs.sort();
+        self.dvrs.dedup();
+        Ok(())
     }
 
     pub fn format(&self, fmt: &Formatter) -> String {
@@ -212,7 +218,7 @@ impl Theorem {
         skip_assumption: Option<usize>,
     ) -> Result<Self, ProofError> {
         let conclusion = self.conclusion.substitute(substitution);
-        let mut assumptions: Vec<Statement> = self
+        let assumptions: Vec<Statement> = self
             .assumptions
             .iter()
             .enumerate()
@@ -225,15 +231,13 @@ impl Theorem {
             })
             .map(|a| a.substitute(substitution))
             .collect();
-        assumptions.dedup();
         let dvrs: Result<Vec<DVR>, ProofError> = self
             .dvrs
             .iter()
             .map(|dvr| dvr.substitute(substitution))
             .flatten()
             .collect();
-        let mut dvrs = dvrs?;
-        dvrs.dedup();
+        let dvrs = dvrs?;
         Ok(Theorem {
             conclusion,
             assumptions,
@@ -251,7 +255,7 @@ impl Theorem {
         }
         let substitution = Substitution::single_substitution(max_var as usize + 1, a, b);
         let mut t = self.substitute(&substitution, None)?;
-        t.standardize();
+        t.standardize()?;
         Ok(t)
     }
 
@@ -269,12 +273,10 @@ impl Theorem {
         substitution.substitute_remaining(&numbers);
         let mut t = self.substitute(&substitution, Some(index))?;
         t.assumptions.extend_from_slice(&other.assumptions);
-        t.assumptions.dedup();
         t.assumptions.shrink_to_fit();
         t.dvrs.extend_from_slice(&other.dvrs);
-        t.dvrs.dedup();
         t.dvrs.shrink_to_fit();
-        t.standardize();
+        t.standardize()?;
         Ok(t)
     }
 }

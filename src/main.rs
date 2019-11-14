@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate diesel;
 extern crate bincode;
+#[macro_use]
+extern crate diesel_migrations;
 extern crate nom;
 
 pub mod auto;
@@ -25,9 +27,12 @@ fn parse_theorem<'a>(fmt: &Formatter, input: &'a str) -> Theorem {
     all_consuming(|s| Theorem::parse(fmt, s))(input).unwrap().1
 }
 
+embed_migrations!("migrations");
+
 fn main() {
-    let database_url = "test.db";
+    let database_url = ":memory:";
     let conn = SqliteConnection::establish(database_url).unwrap();
+    embedded_migrations::run(&conn).unwrap();
 
     let fmt = Formatter {
         operators: vec![("->", true), ("-.", false)],
@@ -46,8 +51,8 @@ fn main() {
     DBTheorem::insert_without_id(&conn, &ax2, true);
     DBTheorem::insert_without_id(&conn, &ax_mp, true);
 
-    for _ in 0..10 {
-        let ts = find_good_theorem(&conn, 5);
+    for _ in 0..50 {
+        let ts = find_good_theorem(&conn, 1);
         for t in ts.iter() {
             println!("{}", t.to_theorem().format(&fmt));
             proof_all(&conn, t);

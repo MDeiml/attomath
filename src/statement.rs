@@ -43,7 +43,7 @@ impl Statement {
         for s in statements {
             let size = s.expression().len() * 2 + 2;
             for i in 0..8 {
-                res.push((size << 8 * (8 - i - 1)) as u8);
+                res.push(((size >> (8 * (8 - i - 1))) & 0xff) as u8);
             }
             res.push((s.judgement >> 8) as u8);
             res.push((s.judgement & 0xff) as u8);
@@ -58,7 +58,7 @@ impl Statement {
         while index < raw.len() {
             let mut size = 0usize;
             for i in 0..8 {
-                size |= (raw[index + i] as usize) << (8 - i - 1);
+                size |= (raw[index + i] as usize) << (8 * (8 - i - 1));
             }
             res.push(Self::deserialize(&raw[index + 8..index + 8 + size]));
             index += size + 8;

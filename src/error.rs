@@ -5,4 +5,5 @@ pub enum ProofError {
     JudgementMismatch,
     ParameterError,
     DVRError,
+    Tautology,
 }
