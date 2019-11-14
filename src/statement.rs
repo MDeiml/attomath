@@ -8,15 +8,68 @@ use crate::{
 use nom::{
     character::complete::space1, combinator::map, error::VerboseError, sequence::tuple, IResult,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct Statement {
     pub judgement: Judgement,
     pub expression: OwnedExpression,
 }
 
 impl Statement {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut res = Vec::with_capacity(self.expression.len() * 2 + 2);
+        res.push((self.judgement >> 8) as u8);
+        res.push((self.judgement & 0xff) as u8);
+        self.expression.serialize(&mut res);
+        res
+    }
+
+    pub fn deserialize(raw: &[u8]) -> Self {
+        let judgement = ((raw[0] as u16) << 8) | raw[1] as u16;
+        let expression = OwnedExpression::deserialize(&raw[2..raw.len()]);
+        Statement {
+            judgement,
+            expression,
+        }
+    }
+
+    pub fn serialize_vec(statements: &Vec<Self>) -> Vec<u8> {
+        let mut res = Vec::with_capacity(
+            statements
+                .iter()
+                .map(|s| s.expression().len() * 2 + 2 + 8)
+                .sum(),
+        );
+        for s in statements {
+            let size = s.expression().len() * 2 + 2;
+            for i in 0..8 {
+                res.push((size << 8 * (8 - i - 1)) as u8);
+            }
+            res.push((s.judgement >> 8) as u8);
+            res.push((s.judgement & 0xff) as u8);
+            s.expression.serialize(&mut res);
+        }
+        res
+    }
+
+    pub fn deserialize_vec(raw: &[u8]) -> Vec<Self> {
+        let mut res = Vec::new();
+        let mut index = 0;
+        while index < raw.len() {
+            let mut size = 0usize;
+            for i in 0..8 {
+                size |= (raw[index + i] as usize) << (8 - i - 1);
+            }
+            res.push(Self::deserialize(&raw[index + 8..index + 8 + size]));
+            index += size + 8;
+        }
+        res
+    }
+
+    pub fn expression(&self) -> &OwnedExpression {
+        &self.expression
+    }
+
     pub fn standardize(
         &mut self,
         var_map: &mut Vec<Option<Identifier>>,

@@ -2,8 +2,8 @@
 extern crate diesel;
 extern crate bincode;
 extern crate nom;
-extern crate serde;
 
+pub mod auto;
 pub mod dvr;
 pub mod error;
 pub mod expression;
@@ -14,11 +14,12 @@ pub mod substitution;
 pub mod theorem;
 pub mod types;
 
+use auto::*;
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use formatter::Formatter;
 use nom::combinator::all_consuming;
-use theorem::Theorem;
+use theorem::{DBTheorem, Theorem};
 
 fn parse_theorem<'a>(fmt: &Formatter, input: &'a str) -> Theorem {
     all_consuming(|s| Theorem::parse(fmt, s))(input).unwrap().1
@@ -34,15 +35,26 @@ fn main() {
     };
 
     let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");
-    diesel::insert_into(schema::theorem::table)
-        .values(&wff2)
-        .execute(&conn)
-        .unwrap();
-    let ts = (schema::theorem::table)
-        .limit(1)
-        .load::<Theorem>(&conn)
-        .unwrap();
-    println!("{}", ts[0].format(&fmt));
+    let ax1 = parse_theorem(&fmt, "wff x0, wff x1 => |- (x0 -> (x1 -> x0))");
+    let ax2 = parse_theorem(
+        &fmt,
+        "wff x0, wff x1, wff x2 => |- ((x0 -> (x1 -> x2)) -> ((x0 -> x1) -> (x0 -> x2)))",
+    );
+    let ax_mp = parse_theorem(&fmt, "|- x0, |- (x0 -> x1) => |- x1");
+    DBTheorem::insert_without_id(&conn, &wff2, false);
+    DBTheorem::insert_without_id(&conn, &ax1, true);
+    DBTheorem::insert_without_id(&conn, &ax2, true);
+    DBTheorem::insert_without_id(&conn, &ax_mp, true);
+
+    for _ in 0..10 {
+        let ts = find_good_theorem(&conn, 5);
+        for t in ts.iter() {
+            println!("{}", t.to_theorem().format(&fmt));
+            proof_all(&conn, t);
+        }
+
+        println!("ok");
+    }
 
     // let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");
     // let ax1 = parse_theorem(&fmt, "wff x0, wff x1 => |- (x0 -> (x1 -> x0))");

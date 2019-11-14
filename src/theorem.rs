@@ -20,36 +20,81 @@ use nom::{
     IResult,
 };
 
-#[derive(Insertable)]
+#[derive(Insertable, Queryable)]
 #[table_name = "theorem"]
-pub struct DBInsertTheorem {
+pub struct DBTheorem {
+    id: i32,
     conclusion: Vec<u8>,
     assumptions: Vec<u8>,
     dvrs: Vec<u8>,
     description: Option<String>,
+    last_auto: i32,
+    use_for_proof: i32,
 }
 
-impl Insertable<theorem::table> for &Theorem {
-    type Values = <DBInsertTheorem as Insertable<theorem::table>>::Values;
-
-    fn values(self) -> Self::Values {
-        Insertable::values(DBInsertTheorem {
-            conclusion: bincode::serialize(&self.conclusion).unwrap(),
-            assumptions: bincode::serialize(&self.assumptions).unwrap(),
-            dvrs: bincode::serialize(&self.dvrs).unwrap(),
-            description: None,
-        })
+impl DBTheorem {
+    pub fn id(&self) -> i32 {
+        self.id
     }
-}
 
-impl Queryable<theorem::SqlType, DB> for Theorem {
-    type Row = (i32, Vec<u8>, Vec<u8>, Vec<u8>, Option<String>);
+    pub fn insert_without_id(conn: &SqliteConnection, theorem1: &Theorem, use_for_proof1: bool) {
+        use crate::schema::theorem::dsl::*;
+        diesel::insert_into(theorem)
+            .values((
+                conclusion.eq(&theorem1.conclusion.serialize()),
+                assumptions.eq(Statement::serialize_vec(&theorem1.assumptions)),
+                dvrs.eq(DVR::serialize_vec(&theorem1.dvrs)),
+                use_for_proof.eq(if use_for_proof1 { 1 } else { 0 }),
+            ))
+            .execute(conn)
+            .unwrap();
+    }
 
-    fn build((_id, conclusion, assumptions, dvrs, _name): Self::Row) -> Self {
+    pub fn insert_without_ids(conn: &SqliteConnection, theorems: &Vec<Theorem>) {
+        use crate::schema::theorem::dsl::*;
+        let vals = theorems
+            .iter()
+            .map(|t| {
+                (
+                    conclusion.eq(t.conclusion.serialize()),
+                    assumptions.eq(Statement::serialize_vec(&t.assumptions)),
+                    dvrs.eq(DVR::serialize_vec(&t.dvrs)),
+                )
+            })
+            .collect::<Vec<_>>();
+        diesel::insert_or_ignore_into(theorem)
+            .values(vals)
+            .execute(conn)
+            .unwrap();
+    }
+
+    pub fn last_auto(&self) -> i32 {
+        self.last_auto
+    }
+
+    pub fn from_theorem(
+        id: i32,
+        theorem: &Theorem,
+        description: Option<String>,
+        last_auto: i32,
+        use_for_proof: bool,
+    ) -> Self {
+        DBTheorem {
+            id,
+            conclusion: theorem.conclusion.serialize(),
+            assumptions: Statement::serialize_vec(&theorem.assumptions),
+            dvrs: DVR::serialize_vec(&theorem.dvrs),
+            description,
+            last_auto,
+            use_for_proof: if use_for_proof { 1 } else { 0 },
+        }
+    }
+
+    pub fn to_theorem(&self) -> Theorem {
         Theorem {
-            conclusion: bincode::deserialize(&conclusion).unwrap(),
-            assumptions: bincode::deserialize(&assumptions).unwrap(),
-            dvrs: bincode::deserialize(&dvrs).unwrap(),
+            conclusion: Statement::deserialize(&self.conclusion),
+            assumptions: Statement::deserialize_vec(&self.assumptions),
+            dvrs: DVR::deserialize_vec(&self.dvrs),
         }
     }
 }
@@ -62,6 +107,14 @@ pub struct Theorem {
 }
 
 impl Theorem {
+    pub fn conclusion(&self) -> &Statement {
+        &self.conclusion
+    }
+
+    pub fn assumptions(&self) -> &[Statement] {
+        &self.assumptions
+    }
+
     pub fn parse<'a>(
         fmt: &Formatter,
         input: &'a str,

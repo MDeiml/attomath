@@ -9,12 +9,32 @@ use nom::{
     sequence::tuple,
     IResult,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct DVR(Identifier, Identifier);
 
 impl DVR {
+    pub fn serialize_vec(dvrs: &Vec<DVR>) -> Vec<u8> {
+        let mut res = Vec::with_capacity(dvrs.len() * 2 * 2);
+        for DVR(a, b) in dvrs {
+            res.push((a >> 8) as u8);
+            res.push((a & 0xff) as u8);
+            res.push((b >> 8) as u8);
+            res.push((b & 0xff) as u8);
+        }
+        res
+    }
+
+    pub fn deserialize_vec(raw: &[u8]) -> Vec<Self> {
+        let mut res = Vec::with_capacity(raw.len() / 4);
+        for i in 0..raw.len() / 4 {
+            let a = ((raw[4 * i] as i16) << 8) | raw[4 * i + 1] as i16;
+            let b = ((raw[4 * i + 2] as i16) << 8) | raw[4 * i + 3] as i16;
+            res.push(DVR::new(a, b).unwrap());
+        }
+        res
+    }
+
     pub fn format(&self, fmt: &Formatter) -> String {
         let DVR(a, b) = self;
         format!("{} <> {}", fmt.format_variable(&a), fmt.format_variable(&b))

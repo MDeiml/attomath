@@ -5,9 +5,8 @@ use nom::{
     error::{context, VerboseError},
     IResult,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub struct OwnedExpression {
     data: Box<[Identifier]>,
 }
@@ -19,10 +18,33 @@ impl Expression for OwnedExpression {
 }
 
 impl OwnedExpression {
+    pub fn deserialize(raw: &[u8]) -> Self {
+        let mut data = Vec::with_capacity(raw.len() / 2);
+        for i in 0..raw.len() / 2 {
+            data.push(((raw[2 * i] as i16) << 8) | (raw[2 * i + 1] as i16));
+        }
+        OwnedExpression {
+            data: data.into_boxed_slice(),
+        }
+    }
+
     pub fn empty() -> Self {
         OwnedExpression {
             data: Vec::new().into_boxed_slice(),
         }
+    }
+
+    pub fn check(&self) -> bool {
+        let data = self.get_data();
+        let mut depth = 1;
+        for s in data {
+            if is_operator(s) && s != &-1 {
+                depth += 1;
+            } else {
+                depth -= 1;
+            }
+        }
+        depth == 0
     }
 
     pub fn standardize(
@@ -87,6 +109,18 @@ impl<'a> Expression for &'a [Identifier] {
 }
 
 pub trait Expression: Ord {
+    fn serialize(&self, res: &mut Vec<u8>) {
+        let data = self.get_data();
+        for s in data {
+            res.push((s >> 8) as u8);
+            res.push((s & 0xff) as u8);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.get_data().len()
+    }
+
     fn get_data<'a>(&'a self) -> &'a [Identifier];
     // TODO: Return result
     fn unify<'a>(
@@ -111,8 +145,11 @@ pub trait Expression: Ord {
                 let start = data_index;
                 if let Some(old) = substitution.get_substitution_opt(symb) {
                     data_index += old.len();
-                    if old != &data[start..data_index] {
+                    if data.len() < data_index || old != &data[start..data_index] {
                         return Err(ProofError::VariableMismatch);
+                    }
+                    for _ in 0..old.len() {
+                        data_iter.next();
                     }
                 } else {
                     let slice = loop {
