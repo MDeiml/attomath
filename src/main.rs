@@ -21,6 +21,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use formatter::Formatter;
 use nom::combinator::all_consuming;
+use statement::Statement;
 use theorem::{DBTheorem, Theorem};
 
 fn parse_theorem<'a>(fmt: &Formatter, input: &'a str) -> Theorem {
@@ -40,25 +41,47 @@ fn main() {
     };
 
     let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");
+    let wff3 = parse_theorem(&fmt, "wff x0 => wff (-. x0)");
     let ax1 = parse_theorem(&fmt, "wff x0, wff x1 => |- (x0 -> (x1 -> x0))");
     let ax2 = parse_theorem(
         &fmt,
         "wff x0, wff x1, wff x2 => |- ((x0 -> (x1 -> x2)) -> ((x0 -> x1) -> (x0 -> x2)))",
     );
+    let ax3 = parse_theorem(
+        &fmt,
+        "wff x0, wff x1 => |- (((-. x0) -> (-. x1)) -> (x1 -> x0))",
+    );
     let ax_mp = parse_theorem(&fmt, "|- x0, |- (x0 -> x1) => |- x1");
+    let id = parse_theorem(&fmt, "wff x0 => |- (x0 -> x0)");
+    let id_con = id.conclusion().serialize();
+    let id_asmpt = Statement::serialize_vec(id.assumptions());
     DBTheorem::insert_without_id(&conn, &wff2, false);
+    DBTheorem::insert_without_id(&conn, &wff3, false);
     DBTheorem::insert_without_id(&conn, &ax1, true);
     DBTheorem::insert_without_id(&conn, &ax2, true);
+    DBTheorem::insert_without_id(&conn, &ax3, true);
     DBTheorem::insert_without_id(&conn, &ax_mp, true);
 
-    for _ in 0..50 {
-        let ts = find_good_theorem(&conn, 1);
-        for t in ts.iter() {
-            println!("{}", t.to_theorem().format(&fmt));
-            proof_all(&conn, t);
+    loop {
+        let ts = find_good_theorem(&conn, 5);
+        if ts.is_empty() {
+            intorduce_new(&conn);
+            use schema::theorem::dsl::*;
+            let test: Vec<DBTheorem> = theorem
+                .filter(conclusion.eq(&id_con))
+                .filter(assumptions.eq(&id_asmpt))
+                .limit(1)
+                .load(&conn)
+                .unwrap();
+            if !test.is_empty() {
+                println!("{}", test[0].to_theorem().format(&fmt));
+                return;
+            }
+        } else {
+            for t in ts.iter() {
+                proof_all(&conn, t);
+            }
         }
-
-        println!("ok");
     }
 
     // let wff2 = parse_theorem(&fmt, "wff x0, wff x1 => wff (x0 -> x1)");

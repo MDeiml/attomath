@@ -19,16 +19,38 @@ fn max_id(conn: &SqliteConnection) -> i32 {
         .unwrap()[0]
 }
 
+fn score_min(conn: &SqliteConnection) -> i32 {
+    use crate::schema::theorem_new::dsl::*;
+    theorem_new
+        .select(n_score)
+        .order(n_score.asc())
+        .limit(1)
+        .load(conn)
+        .unwrap()[0]
+}
+
+pub fn intorduce_new(conn: &SqliteConnection) {
+    use crate::schema::theorem::dsl::*;
+    use crate::schema::theorem_new::dsl::*;
+    let score_min = score_min(conn);
+    let new_theorems = theorem_new.filter(n_score.le(score_min));
+    diesel::insert_or_ignore_into(theorem)
+        .values(new_theorems.select((n_conclusion, n_assumptions, n_dvrs, n_score)))
+        .into_columns((conclusion, assumptions, dvrs, score))
+        .execute(conn)
+        .unwrap();
+    diesel::delete(new_theorems).execute(conn).unwrap();
+    let max_id = max_id(conn);
+    println!("{}", max_id);
+}
+
 pub fn find_good_theorem(conn: &SqliteConnection, limit: usize) -> Vec<DBTheorem> {
     use crate::schema::theorem::dsl::*;
     let max_id = max_id(conn);
     theorem
         .filter(use_for_proof.eq(1))
-        .order(
-            ((max_id.into_sql::<diesel::sql_types::Integer>() - last_auto) * 2
-                - (length(conclusion) + length(assumptions)))
-            .desc(),
-        )
+        .filter((last_auto + score / 20).lt(max_id))
+        .order(score.asc())
         .limit(limit as i64)
         .load(conn)
         .unwrap()

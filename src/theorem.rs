@@ -27,9 +27,13 @@ pub struct DBTheorem {
     conclusion: Vec<u8>,
     assumptions: Vec<u8>,
     dvrs: Vec<u8>,
-    description: Option<String>,
     last_auto: i32,
     use_for_proof: i32,
+    score: i32,
+}
+
+sql_function! {
+    fn length(x: diesel::sql_types::Binary) -> diesel::sql_types::Integer;
 }
 
 impl DBTheorem {
@@ -39,10 +43,13 @@ impl DBTheorem {
 
     pub fn insert_without_id(conn: &SqliteConnection, theorem1: &Theorem, use_for_proof1: bool) {
         use crate::schema::theorem::dsl::*;
+        let conc = theorem1.conclusion.serialize();
+        let asmpts = Statement::serialize_vec(&theorem1.assumptions);
         diesel::insert_into(theorem)
             .values((
-                conclusion.eq(&theorem1.conclusion.serialize()),
-                assumptions.eq(Statement::serialize_vec(&theorem1.assumptions)),
+                score.eq((conc.len() + asmpts.len()) as i32),
+                conclusion.eq(conc),
+                assumptions.eq(asmpts),
                 dvrs.eq(DVR::serialize_vec(&theorem1.dvrs)),
                 use_for_proof.eq(if use_for_proof1 { 1 } else { 0 }),
             ))
@@ -51,18 +58,21 @@ impl DBTheorem {
     }
 
     pub fn insert_without_ids(conn: &SqliteConnection, theorems: &Vec<Theorem>) {
-        use crate::schema::theorem::dsl::*;
+        use crate::schema::theorem_new::dsl::*;
         let vals = theorems
             .iter()
             .map(|t| {
+                let c = t.conclusion.serialize();
+                let a = Statement::serialize_vec(&t.assumptions);
                 (
-                    conclusion.eq(t.conclusion.serialize()),
-                    assumptions.eq(Statement::serialize_vec(&t.assumptions)),
-                    dvrs.eq(DVR::serialize_vec(&t.dvrs)),
+                    n_score.eq((c.len() + a.len()) as i32),
+                    n_conclusion.eq(c),
+                    n_assumptions.eq(a),
+                    n_dvrs.eq(DVR::serialize_vec(&t.dvrs)),
                 )
             })
             .collect::<Vec<_>>();
-        diesel::insert_or_ignore_into(theorem)
+        diesel::insert_or_ignore_into(theorem_new)
             .values(vals)
             .execute(conn)
             .unwrap();
@@ -75,18 +85,18 @@ impl DBTheorem {
     pub fn from_theorem(
         id: i32,
         theorem: &Theorem,
-        description: Option<String>,
         last_auto: i32,
         use_for_proof: bool,
+        score: i32,
     ) -> Self {
         DBTheorem {
             id,
             conclusion: theorem.conclusion.serialize(),
             assumptions: Statement::serialize_vec(&theorem.assumptions),
             dvrs: DVR::serialize_vec(&theorem.dvrs),
-            description,
             last_auto,
             use_for_proof: if use_for_proof { 1 } else { 0 },
+            score,
         }
     }
 

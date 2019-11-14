@@ -33,7 +33,7 @@ impl Statement {
         }
     }
 
-    pub fn serialize_vec(statements: &Vec<Self>) -> Vec<u8> {
+    pub fn serialize_vec(statements: &[Self]) -> Vec<u8> {
         let mut res = Vec::with_capacity(
             statements
                 .iter()
