@@ -9,7 +9,7 @@ sql_function! {
     fn length(x: diesel::sql_types::Binary) -> diesel::sql_types::Integer;
 }
 
-fn max_id(conn: &SqliteConnection) -> i32 {
+pub fn max_id(conn: &SqliteConnection) -> i32 {
     use crate::schema::theorem::dsl::*;
     theorem
         .select(id)
@@ -19,7 +19,7 @@ fn max_id(conn: &SqliteConnection) -> i32 {
         .unwrap()[0]
 }
 
-fn score_min(conn: &SqliteConnection) -> i32 {
+pub fn score_new_min(conn: &SqliteConnection) -> i32 {
     use crate::schema::theorem_new::dsl::*;
     theorem_new
         .select(n_score)
@@ -29,19 +29,16 @@ fn score_min(conn: &SqliteConnection) -> i32 {
         .unwrap()[0]
 }
 
-pub fn intorduce_new(conn: &SqliteConnection) {
+pub fn introduce_new(conn: &SqliteConnection, max_score: i32) {
     use crate::schema::theorem::dsl::*;
     use crate::schema::theorem_new::dsl::*;
-    let score_min = score_min(conn);
-    let new_theorems = theorem_new.filter(n_score.le(score_min));
+    let new_theorems = theorem_new.filter(n_score.le(max_score));
     diesel::insert_or_ignore_into(theorem)
         .values(new_theorems.select((n_conclusion, n_assumptions, n_dvrs, n_score)))
         .into_columns((conclusion, assumptions, dvrs, score))
         .execute(conn)
         .unwrap();
     diesel::delete(new_theorems).execute(conn).unwrap();
-    let max_id = max_id(conn);
-    println!("{}", max_id);
 }
 
 pub fn find_good_theorem(conn: &SqliteConnection, limit: usize) -> Vec<DBTheorem> {
@@ -49,7 +46,7 @@ pub fn find_good_theorem(conn: &SqliteConnection, limit: usize) -> Vec<DBTheorem
     let max_id = max_id(conn);
     theorem
         .filter(use_for_proof.eq(1))
-        .filter((last_auto + score / 20).lt(max_id))
+        .filter((last_auto * score).lt(max_id))
         .order(score.asc())
         .limit(limit as i64)
         .load(conn)
@@ -73,7 +70,7 @@ pub fn find_matching_candidates(
         .unwrap()
 }
 
-pub fn proof_all(conn: &SqliteConnection, db_th: &DBTheorem) {
+pub fn proof_all(conn: &SqliteConnection, db_th: &DBTheorem) -> Vec<Theorem> {
     let th = db_th.to_theorem();
     let mut inserts = Vec::new();
     let max_id = max_id(conn);
@@ -89,13 +86,13 @@ pub fn proof_all(conn: &SqliteConnection, db_th: &DBTheorem) {
         .set(last_auto.eq(max_id))
         .execute(conn)
         .unwrap();
-    DBTheorem::insert_without_ids(conn, &inserts);
+    inserts
 }
 
 pub fn proof_all_simplify(th: &Theorem, inserts: &mut Vec<Theorem>) {
     for i in 0..th.assumptions().len() {
         for j in 0..i {
-            if let Ok(res) = th.simplify(&(i as i16), &(j as i16)) {
+            if let Ok(res) = th.simplify(i as i16, j as i16) {
                 inserts.push(res);
             }
         }

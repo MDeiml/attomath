@@ -50,20 +50,20 @@ impl DVR {
         }
     }
 
-    pub fn substitute<'a>(
+    pub fn substitute<'a, S: Substitution<'a>>(
         &'a self,
-        substitution: &'a Substitution,
-    ) -> impl Iterator<Item = Result<Self, ProofError>> + 'a {
+        substitution: &'a S,
+    ) -> impl Iterator<Item = Result<DVR, ProofError>> + 'a {
         let DVR(a, b) = self;
         let sub_a = substitution.get_substitution(a);
         let sub_b = substitution.get_substitution(b);
         sub_a
             .iter()
-            .filter(|symb| !is_operator(symb))
+            .filter(|symb| !is_operator(**symb))
             .map(move |new_a| {
                 sub_b
                     .iter()
-                    .filter(|symb| !is_operator(symb))
+                    .filter(|symb| !is_operator(**symb))
                     .map(move |new_b| Self::new(*new_a, *new_b))
             })
             .flatten()

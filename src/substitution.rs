@@ -1,20 +1,13 @@
 use crate::types::*;
 
 #[derive(Debug)]
-pub struct Substitution<'a> {
+pub struct WholeSubstitution<'a> {
     substitution: Vec<Option<&'a [Identifier]>>,
 }
 
-impl<'a> Substitution<'a> {
-    // TODO: Optimize
-    pub fn single_substitution(capacity: usize, to: &'a Identifier, from: &Identifier) -> Self {
-        let mut substitution = Self::with_capacity(capacity);
-        substitution.substitution[*from as usize] = Some(std::slice::from_ref(to));
-        substitution
-    }
-
+impl<'a> WholeSubstitution<'a> {
     pub fn with_capacity(n: usize) -> Self {
-        Substitution {
+        WholeSubstitution {
             substitution: vec![None; n],
         }
     }
@@ -27,15 +20,40 @@ impl<'a> Substitution<'a> {
         }
     }
 
-    pub fn get_substitution(&self, id: &'a Identifier) -> &'a [Identifier] {
-        self.substitution[*id as usize].unwrap_or(std::slice::from_ref(id))
+    pub fn insert(&mut self, id: Identifier, expr: &'a [Identifier]) {
+        self.substitution[id as usize] = Some(expr)
     }
+}
 
-    pub fn get_substitution_opt(&self, id: &Identifier) -> Option<&[Identifier]> {
-        self.substitution[*id as usize]
+impl<'a> Substitution<'a> for WholeSubstitution<'a> {
+    fn get_substitution_opt(&self, id: Identifier) -> Option<&[Identifier]> {
+        self.substitution[id as usize]
     }
+}
 
-    pub fn insert(&mut self, id: &Identifier, expr: &'a [Identifier]) {
-        self.substitution[*id as usize] = Some(expr)
+pub struct SingleSubstitution {
+    pub from: Identifier,
+    pub to: Identifier,
+}
+
+impl Substitution<'_> for SingleSubstitution {
+    fn get_substitution_opt(&self, id: Identifier) -> Option<&[Identifier]> {
+        if id == self.from {
+            Some(std::slice::from_ref(&self.to))
+        } else {
+            None
+        }
+    }
+}
+
+pub trait Substitution<'a> {
+    fn get_substitution_opt(&self, id: Identifier) -> Option<&[Identifier]>;
+
+    fn get_substitution<'b>(&'a self, id: &'b Identifier) -> &'b [Identifier]
+    where
+        'a: 'b,
+    {
+        self.get_substitution_opt(*id)
+            .unwrap_or(std::slice::from_ref(id))
     }
 }

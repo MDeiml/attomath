@@ -1,4 +1,9 @@
-use crate::{error::ProofError, formatter::Formatter, substitution::Substitution, types::*};
+use crate::{
+    error::ProofError,
+    formatter::Formatter,
+    substitution::{Substitution, WholeSubstitution},
+    types::*,
+};
 use nom::{
     branch::alt,
     combinator::map,
@@ -37,8 +42,8 @@ impl OwnedExpression {
     pub fn check(&self) -> bool {
         let data = self.get_data();
         let mut depth = 1;
-        for s in data {
-            if is_operator(s) && s != &-1 {
+        for &s in data {
+            if is_operator(s) && s != -1 {
                 depth += 1;
             } else {
                 depth -= 1;
@@ -53,7 +58,7 @@ impl OwnedExpression {
         next_var: &mut Identifier,
     ) {
         for symb in self.data.iter_mut() {
-            if !is_operator(symb) {
+            if !is_operator(*symb) {
                 *symb = var_map[*symb as usize].unwrap_or_else(|| {
                     let var = *next_var;
                     var_map[*symb as usize] = Some(var);
@@ -126,14 +131,14 @@ pub trait Expression: Ord {
     fn unify<'a>(
         &'a self,
         other: &Self,
-        substitution: &mut Substitution<'a>,
+        substitution: &mut WholeSubstitution<'a>,
     ) -> Result<(), ProofError> {
         let data = self.get_data();
         let mut data_iter = data.iter();
         let mut data_index = 0;
-        for symb in other.get_data().iter() {
-            if is_operator(&symb) {
-                let symb_self = data_iter
+        for &symb in other.get_data().iter() {
+            if is_operator(symb) {
+                let symb_self = *data_iter
                     .next()
                     .expect(format!("self is not well formated {:?}", data).as_str());
                 data_index += 1;
@@ -153,11 +158,11 @@ pub trait Expression: Ord {
                     }
                 } else {
                     let slice = loop {
-                        let s = data_iter
+                        let s = *data_iter
                             .next()
                             .expect(format!("self is not well formated {:?}", data).as_str());
                         data_index += 1;
-                        if is_operator(s) && s != &-1 {
+                        if is_operator(s) && s != -1 {
                             depth += 1;
                         } else {
                             depth -= 1;
@@ -174,14 +179,14 @@ pub trait Expression: Ord {
         return Ok(());
     }
 
-    fn substitute<'a>(&self, substitution: &Substitution<'a>) -> OwnedExpression {
+    fn substitute<'a, S: Substitution<'a>>(&self, substitution: &'a S) -> OwnedExpression {
         let data = self.get_data();
         let mut new_data = Vec::with_capacity(data.len());
-        for symb in data.iter() {
+        for &symb in data.iter() {
             if is_operator(symb) {
-                new_data.push(*symb)
+                new_data.push(symb)
             } else {
-                new_data.extend_from_slice(substitution.get_substitution(symb));
+                new_data.extend_from_slice(substitution.get_substitution(&symb));
             }
         }
         OwnedExpression {
@@ -191,7 +196,7 @@ pub trait Expression: Ord {
 
     fn format_helper(s: &[Identifier], formatter: &Formatter) -> (String, usize) {
         let symb = s[0];
-        if is_operator(&symb) {
+        if is_operator(symb) {
             if symb == -1 {
                 ("".to_owned(), 1)
             } else {
@@ -218,7 +223,7 @@ pub trait Expression: Ord {
         let data = self.get_data();
         let index = data
             .iter()
-            .position(|s| !is_operator(s))
+            .position(|s| !is_operator(*s))
             .unwrap_or(data.len());
         if index == 0 {
             return None;
@@ -234,6 +239,6 @@ pub trait Expression: Ord {
     }
 }
 
-pub fn is_operator(x: &Identifier) -> bool {
-    x < &0
+pub fn is_operator(x: Identifier) -> bool {
+    x < 0
 }

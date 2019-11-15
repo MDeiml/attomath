@@ -5,7 +5,7 @@ use crate::{
     formatter::Formatter,
     schema::theorem,
     statement::Statement,
-    substitution::Substitution,
+    substitution::{SingleSubstitution, Substitution, WholeSubstitution},
     types::*,
 };
 use diesel::prelude::*;
@@ -41,13 +41,18 @@ impl DBTheorem {
         self.id
     }
 
-    pub fn insert_without_id(conn: &SqliteConnection, theorem1: &Theorem, use_for_proof1: bool) {
+    pub fn insert_without_id<F: Fn(&Theorem) -> i32>(
+        conn: &SqliteConnection,
+        theorem1: &Theorem,
+        use_for_proof1: bool,
+        guess_score: F,
+    ) {
         use crate::schema::theorem::dsl::*;
         let conc = theorem1.conclusion.serialize();
         let asmpts = Statement::serialize_vec(&theorem1.assumptions);
         diesel::insert_into(theorem)
             .values((
-                score.eq((conc.len() + asmpts.len()) as i32),
+                score.eq(guess_score(theorem1)),
                 conclusion.eq(conc),
                 assumptions.eq(asmpts),
                 dvrs.eq(DVR::serialize_vec(&theorem1.dvrs)),
@@ -57,7 +62,11 @@ impl DBTheorem {
             .unwrap();
     }
 
-    pub fn insert_without_ids(conn: &SqliteConnection, theorems: &Vec<Theorem>) {
+    pub fn insert_without_ids<F: Fn(&Theorem) -> i32>(
+        conn: &SqliteConnection,
+        theorems: &Vec<Theorem>,
+        guess_score: F,
+    ) {
         use crate::schema::theorem_new::dsl::*;
         let vals = theorems
             .iter()
@@ -65,7 +74,7 @@ impl DBTheorem {
                 let c = t.conclusion.serialize();
                 let a = Statement::serialize_vec(&t.assumptions);
                 (
-                    n_score.eq((c.len() + a.len()) as i32),
+                    n_score.eq(guess_score(t)),
                     n_conclusion.eq(c),
                     n_assumptions.eq(a),
                     n_dvrs.eq(DVR::serialize_vec(&t.dvrs)),
@@ -217,14 +226,14 @@ impl Theorem {
                     .map(|st| st.expression.get_data().iter())
                     .flatten(),
             )
-            .filter(|symb| !is_operator(symb))
+            .filter(|symb| !is_operator(**symb))
             .max()
             .unwrap_or(&-1)
     }
 
-    fn substitute(
-        &self,
-        substitution: &Substitution,
+    fn substitute<'a, S: Substitution<'a>>(
+        &'a self,
+        substitution: &'a S,
         skip_assumption: Option<usize>,
     ) -> Result<Self, ProofError> {
         let conclusion = self.conclusion.substitute(substitution);
@@ -255,15 +264,15 @@ impl Theorem {
         })
     }
 
-    pub fn simplify(&self, a: &Identifier, b: &Identifier) -> Result<Self, ProofError> {
+    pub fn simplify(&self, a: Identifier, b: Identifier) -> Result<Self, ProofError> {
         if is_operator(a) || is_operator(b) {
             return Err(ProofError::ParameterError);
         }
         let max_var = self.max_var();
-        if a > &max_var || b > &max_var {
+        if a > max_var || b > max_var {
             return Err(ProofError::ParameterError);
         }
-        let substitution = Substitution::single_substitution(max_var as usize + 1, a, b);
+        let substitution = SingleSubstitution { from: b, to: a };
         let mut t = self.substitute(&substitution, None)?;
         t.standardize()?;
         Ok(t)
@@ -274,7 +283,7 @@ impl Theorem {
             return Err(ProofError::ParameterError);
         }
         let max_var = self.max_var();
-        let mut substitution = Substitution::with_capacity(max_var as usize + 1);
+        let mut substitution = WholeSubstitution::with_capacity(max_var as usize + 1);
         other
             .conclusion
             .unify(&self.assumptions[index], &mut substitution)?;

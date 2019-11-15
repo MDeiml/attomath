@@ -2,7 +2,7 @@ use crate::{
     error::ProofError,
     expression::{Expression, OwnedExpression},
     formatter::Formatter,
-    substitution::Substitution,
+    substitution::{Substitution, WholeSubstitution},
     types::*,
 };
 use nom::{
@@ -70,6 +70,10 @@ impl Statement {
         &self.expression
     }
 
+    pub fn judgement(&self) -> Judgement {
+        self.judgement
+    }
+
     pub fn standardize(
         &mut self,
         var_map: &mut Vec<Option<Identifier>>,
@@ -86,7 +90,7 @@ impl Statement {
         )
     }
 
-    pub fn substitute(&self, substitution: &Substitution) -> Self {
+    pub fn substitute<'a, S: Substitution<'a>>(&self, substitution: &'a S) -> Self {
         Statement {
             judgement: self.judgement,
             expression: self.expression.substitute(substitution),
@@ -96,7 +100,7 @@ impl Statement {
     pub fn unify<'a>(
         &'a self,
         other: &Self,
-        substitution: &mut Substitution<'a>,
+        substitution: &mut WholeSubstitution<'a>,
     ) -> Result<(), ProofError> {
         if self.judgement != other.judgement {
             return Err(ProofError::JudgementMismatch);
