@@ -1,188 +1,92 @@
 use crate::{
     dvr::DVR,
     error::ProofError,
-    expression::{is_operator, Expression},
-    formatter::Formatter,
-    schema::theorem,
-    statement::Statement,
-    substitution::{SingleSubstitution, Substitution, WholeSubstitution},
+    statement::{is_operator, OwnedStatement, Statement},
+    substitution::{Substitution, WholeSubstitution},
     types::*,
 };
-use diesel::prelude::*;
-use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::{char, space0, space1},
-    combinator::map,
-    error::VerboseError,
-    multi::separated_list,
-    sequence::tuple,
-    IResult,
-};
 
-#[derive(Insertable, Queryable)]
-#[table_name = "theorem"]
-pub struct DBTheorem {
-    id: i32,
-    conclusion: Vec<u8>,
-    assumptions: Vec<u8>,
-    dvrs: Vec<u8>,
-    last_auto: i32,
-    use_for_proof: i32,
-    score: i32,
-}
-
-sql_function! {
-    fn length(x: diesel::sql_types::Binary) -> diesel::sql_types::Integer;
-}
-
-impl DBTheorem {
-    pub fn id(&self) -> i32 {
-        self.id
-    }
-
-    pub fn insert_without_id<F: Fn(&Theorem) -> i32>(
-        conn: &SqliteConnection,
-        theorem1: &Theorem,
-        use_for_proof1: bool,
-        guess_score: F,
-    ) {
-        use crate::schema::theorem::dsl::*;
-        let conc = theorem1.conclusion.serialize();
-        let asmpts = Statement::serialize_vec(&theorem1.assumptions);
-        diesel::insert_into(theorem)
-            .values((
-                score.eq(guess_score(theorem1)),
-                conclusion.eq(conc),
-                assumptions.eq(asmpts),
-                dvrs.eq(DVR::serialize_vec(&theorem1.dvrs)),
-                use_for_proof.eq(if use_for_proof1 { 1 } else { 0 }),
-            ))
-            .execute(conn)
-            .unwrap();
-    }
-
-    pub fn insert_without_ids<F: Fn(&Theorem) -> i32>(
-        conn: &SqliteConnection,
-        theorems: &Vec<Theorem>,
-        guess_score: F,
-    ) {
-        use crate::schema::theorem_new::dsl::*;
-        let vals = theorems
-            .iter()
-            .map(|t| {
-                let c = t.conclusion.serialize();
-                let a = Statement::serialize_vec(&t.assumptions);
-                (
-                    n_score.eq(guess_score(t)),
-                    n_conclusion.eq(c),
-                    n_assumptions.eq(a),
-                    n_dvrs.eq(DVR::serialize_vec(&t.dvrs)),
-                )
-            })
-            .collect::<Vec<_>>();
-        diesel::insert_or_ignore_into(theorem_new)
-            .values(vals)
-            .execute(conn)
-            .unwrap();
-    }
-
-    pub fn last_auto(&self) -> i32 {
-        self.last_auto
-    }
-
-    pub fn from_theorem(
-        id: i32,
-        theorem: &Theorem,
-        last_auto: i32,
-        use_for_proof: bool,
-        score: i32,
-    ) -> Self {
-        DBTheorem {
-            id,
-            conclusion: theorem.conclusion.serialize(),
-            assumptions: Statement::serialize_vec(&theorem.assumptions),
-            dvrs: DVR::serialize_vec(&theorem.dvrs),
-            last_auto,
-            use_for_proof: if use_for_proof { 1 } else { 0 },
-            score,
-        }
-    }
-
-    pub fn to_theorem(&self) -> Theorem {
-        Theorem {
-            conclusion: Statement::deserialize(&self.conclusion),
-            assumptions: Statement::deserialize_vec(&self.assumptions),
-            dvrs: DVR::deserialize_vec(&self.dvrs),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+/// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or _assumptions_
+/// and a _conclusion_
+///
+/// A theorem could represent something like "if x0 is provable and (x0 -> x1) is provable then b
+/// is provable". In this example the assumptions would be "x0" and "x0 -> x1" and the conclusion
+/// would be "x1".
+///
+/// When using this struct it is guaranteed that only valid theorems can be constructed (using
+/// [`substitute`](#method.substitute), [`combine`](#method.combine) and
+/// [`standardize`](#method.standardize)) provided that only valid theorems (or axioms) are
+/// constructed using [`new`](#method.new).
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub struct Theorem {
-    conclusion: Statement,
-    assumptions: Vec<Statement>,
+    conclusion: OwnedStatement,
+    assumptions: Vec<OwnedStatement>,
     dvrs: Vec<DVR>,
 }
 
 impl Theorem {
-    pub fn conclusion(&self) -> &Statement {
+    /// Returns this theorems' conclusion
+    pub fn conclusion(&self) -> &OwnedStatement {
         &self.conclusion
     }
 
-    pub fn assumptions(&self) -> &[Statement] {
+    /// Returns this theorems' assumptions
+    pub fn assumptions(&self) -> &[OwnedStatement] {
         &self.assumptions
     }
 
-    pub fn parse<'a>(
-        fmt: &Formatter,
-        input: &'a str,
-    ) -> IResult<&'a str, Self, VerboseError<&'a str>> {
-        enum StatementOrDVR {
-            Statement(Statement),
-            DVR(DVR),
-        }
-        map(
-            tuple((
-                separated_list(
-                    tuple((space0, char(','), space0)),
-                    alt((
-                        map(
-                            |s| Statement::parse(fmt, s),
-                            |s| StatementOrDVR::Statement(s),
-                        ),
-                        map(|s| DVR::parse(fmt, s), |dvr| StatementOrDVR::DVR(dvr)),
-                    )),
-                ),
-                space1,
-                tag("=>"),
-                space1,
-                |s| Statement::parse(fmt, s),
-            )),
-            |(pre, _, _, _, conclusion)| {
-                let mut assumptions = Vec::new();
-                let mut dvrs = Vec::new();
-                for sod in pre {
-                    match sod {
-                        StatementOrDVR::Statement(s) => assumptions.push(s),
-                        StatementOrDVR::DVR(dvr) => dvrs.push(dvr),
-                    }
-                }
-                let mut t = Theorem {
-                    conclusion,
-                    assumptions,
-                    dvrs,
-                };
-                t.standardize().unwrap();
-                t
-            },
-        )(input)
+    /// Returns this theorems' `DVR`s
+    pub fn dvrs(&self) -> &[DVR] {
+        &self.dvrs
     }
 
-    pub fn standardize(&mut self) -> Result<(), ProofError> {
-        if self.assumptions.contains(&self.conclusion) {
-            return Err(ProofError::Tautology);
+    /// Create a new `Theorem` containig the given assumptions, `DVR`s and conclusion
+    ///
+    /// This should only be used for axioms and theorems that are already proven.
+    pub fn new(
+        conclusion: OwnedStatement,
+        assumptions: Vec<OwnedStatement>,
+        dvrs: Vec<DVR>,
+    ) -> Self {
+        Theorem {
+            conclusion,
+            assumptions,
+            dvrs,
         }
+    }
+
+    /// Turns this theorem into its standard representation, numbering variables in the order of
+    /// their apperance and sorting the assumptions and dvrs (see
+    /// [`Statement::standardize`](../statement/trait.Statement.html#standardize) and
+    /// [`DVR::standardize`](../dvr/struct.DVR.html#standardize))
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::statement::OwnedStatement;
+    /// use attomath::theorem::Theorem;
+    ///
+    /// let conclusion = OwnedStatement::from_raw(0, vec![3]).unwrap();
+    /// let assumptions = vec![
+    ///     OwnedStatement::from_raw(0, vec![10]).unwrap(),
+    ///     OwnedStatement::from_raw(0, vec![-2, 10, 3]).unwrap(),
+    /// ];
+    /// // |- x10, |- (x10 -> x3) => x3
+    /// let mut theorem1 = Theorem::new(conclusion, assumptions, vec![]);
+    ///
+    /// let conclusion = OwnedStatement::from_raw(0, vec![2]).unwrap();
+    /// let assumptions = vec![
+    ///     OwnedStatement::from_raw(0, vec![-2, 1, 2]).unwrap(),
+    ///     OwnedStatement::from_raw(0, vec![1]).unwrap(),
+    /// ];
+    /// // |- (x1 -> x2), |- x1 => x2
+    /// let mut theorem2 = Theorem::new(conclusion, assumptions, vec![]);
+    /// assert!(theorem1 != theorem2);
+    ///
+    /// theorem1.standardize();
+    /// theorem2.standardize();
+    /// assert_eq!(theorem1, theorem2);
+    /// ```
+    pub fn standardize(&mut self) {
         let max_var = self.max_var();
         let mut var_map = vec![None; max_var as usize + 1];
         let mut next_var = 0;
@@ -191,39 +95,40 @@ impl Theorem {
             a.standardize(&mut var_map, &mut next_var);
         }
         for dvr in self.dvrs.iter_mut() {
-            dvr.standardize(&var_map);
+            dvr.standardize(&mut var_map, &mut next_var);
         }
         self.assumptions.sort();
         self.assumptions.dedup();
         self.dvrs.sort();
         self.dvrs.dedup();
-        Ok(())
     }
 
-    pub fn format(&self, fmt: &Formatter) -> String {
-        let preamble = self
-            .dvrs
-            .iter()
-            .map(|dvr| dvr.format(&fmt))
-            .chain(self.assumptions.iter().map(|s| s.format(fmt)))
-            .fold(None, |s, e| {
-                Some(s.map(|s| s + ", ").unwrap_or(String::new()) + &e)
-            })
-            .map(|s| s + " => ")
-            .unwrap_or(String::new());
-        preamble + &self.conclusion.format(fmt)
-    }
-
+    /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
+    /// together with
+    /// [`OwnedSubstitution::with_capacity`](../substitution/struct.OwnedSubstitution.html#method.with_capacity)
+    /// # Example
+    /// ```
+    /// use attomath::statement::OwnedStatement;
+    /// use attomath::theorem::Theorem;
+    ///
+    /// let conclusion = OwnedStatement::from_raw(0, vec![3]).unwrap();
+    /// let assumptions = vec![
+    ///     OwnedStatement::from_raw(0, vec![10]).unwrap(),
+    ///     OwnedStatement::from_raw(0, vec![-2, 10, 3]).unwrap(),
+    /// ];
+    /// // |- x10, |- (x10 -> x3) => x3
+    /// let mut theorem = Theorem::new(conclusion, assumptions, vec![]);
+    /// assert_eq!(theorem.max_var(), 10);
+    /// ```
     pub fn max_var(&self) -> Identifier {
         *self
             .conclusion
-            .expression
-            .get_data()
+            .expression()
             .iter()
             .chain(
                 self.assumptions
                     .iter()
-                    .map(|st| st.expression.get_data().iter())
+                    .map(|st| st.expression().iter())
                     .flatten(),
             )
             .filter(|symb| !is_operator(**symb))
@@ -231,13 +136,60 @@ impl Theorem {
             .unwrap_or(&-1)
     }
 
-    fn substitute<'a, S: Substitution<'a>>(
+    /// Uses the given substitution on this theorem's assumptions, dvrs and conclusion to create a
+    /// new theorem. (see
+    /// [`Statement::substitute`](../statement/trait.Statement.html#method.substitute) and
+    /// [`DVR::substitute`](../dvr/struct.DVR.html#method.substitute))
+    ///
+    /// # Errors
+    /// This method can return a `DVRError` if the substitution violates one of this theorem's
+    /// dvrs.
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::statement::{OwnedStatement, Statement};
+    /// use attomath::dvr::DVR;
+    /// use attomath::theorem::Theorem;
+    /// use attomath::substitution::WholeSubstitution;
+    /// use attomath::error::ProofError;
+    ///
+    /// let conclusion = OwnedStatement::from_raw(0, vec![-2, 0, 2]).unwrap();
+    /// let assumptions = vec![
+    ///     OwnedStatement::from_raw(0, vec![-2, 1, 2]).unwrap(),
+    ///     OwnedStatement::from_raw(0, vec![-2, 0, 1]).unwrap(),
+    /// ];
+    /// let theorem = Theorem::new(conclusion.clone(), assumptions, vec![]);
+    ///
+    /// let mut sub = WholeSubstitution::with_capacity(3);
+    /// let expr = vec![-2, 1, 2];
+    /// sub.insert(0, expr.as_slice());
+    /// let new_theorem = theorem.substitute(&sub).expect("This substitution should not fail");
+    ///
+    /// assert_eq!(new_theorem.conclusion().expression(), vec![-2, -2, 1, 2, 2].as_slice());
+    /// assert_eq!(new_theorem.assumptions()[0].expression(), vec![-2, 1, 2].as_slice());
+    /// assert_eq!(new_theorem.assumptions()[1].expression(), vec![-2, -2, 1, 2, 1].as_slice());
+    ///
+    /// let dvrs = vec![
+    ///     DVR::new(0, 1).unwrap()
+    /// ];
+    /// let theorem = Theorem::new(conclusion, vec![], dvrs);
+    /// let res = theorem.substitute(&sub);
+    /// assert_eq!(res, Err(ProofError::DVRError(1)));
+    /// ```
+    pub fn substitute<'a, S: Substitution<'a>>(
+        &'a self,
+        substitution: &'a S,
+    ) -> Result<Self, ProofError> {
+        self.substitute_skip_assumption(substitution, None)
+    }
+
+    fn substitute_skip_assumption<'a, S: Substitution<'a>>(
         &'a self,
         substitution: &'a S,
         skip_assumption: Option<usize>,
     ) -> Result<Self, ProofError> {
         let conclusion = self.conclusion.substitute(substitution);
-        let assumptions: Vec<Statement> = self
+        let assumptions: Vec<OwnedStatement> = self
             .assumptions
             .iter()
             .enumerate()
@@ -264,23 +216,51 @@ impl Theorem {
         })
     }
 
-    pub fn simplify(&self, a: Identifier, b: Identifier) -> Result<Self, ProofError> {
-        if is_operator(a) || is_operator(b) {
-            return Err(ProofError::ParameterError);
-        }
-        let max_var = self.max_var();
-        if a > max_var || b > max_var {
-            return Err(ProofError::ParameterError);
-        }
-        let substitution = SingleSubstitution { from: b, to: a };
-        let mut t = self.substitute(&substitution, None)?;
-        t.standardize()?;
-        Ok(t)
-    }
-
+    /// Creates a new `Theorem` by applying `other` to this theorem's assumption with index `index`
+    ///
+    /// # Errors
+    /// This can product the following errors:
+    /// * `OperatorMismatch`, `VariableMismatch` or `JudgementMismatch` - if the conclusion of
+    /// `other` cannot be unified with the specified assumption (see
+    /// [`Statement::unify`](../statement/trait.Statement.html#method.unify))
+    /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into te
+    /// specified assumption violates one of this theorems' `DVR`s (see
+    /// [`standardize`](#method.standardize))
+    /// * `ParameterError` - if `index >= self.assumptions().len()`
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::theorem::Theorem;
+    /// use attomath::statement::{OwnedStatement, Statement};
+    ///
+    /// // |- x0, |- (x0 -> x1) => |- x1
+    /// let ax_mp = Theorem::new(
+    ///     OwnedStatement::from_raw(0, vec![1]).unwrap(),
+    ///     vec![
+    ///         OwnedStatement::from_raw(0, vec![0]).unwrap(),
+    ///         OwnedStatement::from_raw(0, vec![-2, 0, 1]).unwrap(),
+    ///     ],
+    ///     vec![],
+    /// );
+    ///
+    /// // |- x2 => |- (x3 -> x4)
+    /// let t0 = Theorem::new(
+    ///     OwnedStatement::from_raw(0, vec![-2, 3, 4]).unwrap(),
+    ///     vec![
+    ///         OwnedStatement::from_raw(0, vec![2]).unwrap()
+    ///     ],
+    ///     vec![],
+    /// );
+    ///
+    /// // |- x3, |- x2 => x4
+    /// let t1 = ax_mp.combine(&t0, 1).expect("This should not fail");
+    /// assert_eq!(t1.conclusion().expression(), vec![4].as_slice());
+    /// assert_eq!(t1.assumptions()[0].expression(), vec![3].as_slice());
+    /// assert_eq!(t1.assumptions()[1].expression(), vec![2].as_slice());
+    /// ```
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
         if index > self.assumptions.len() {
-            return Err(ProofError::ParameterError);
+            return Err(ProofError::ParameterError(index, self.assumptions.len()));
         }
         let max_var = self.max_var();
         let mut substitution = WholeSubstitution::with_capacity(max_var as usize + 1);
@@ -288,14 +268,13 @@ impl Theorem {
             .conclusion
             .unify(&self.assumptions[index], &mut substitution)?;
         let shift = other.max_var() + 1;
-        let numbers = (shift..=shift + max_var as Identifier + 1).collect();
+        let numbers = (shift..=shift + max_var as Identifier + 1).collect::<Vec<_>>();
         substitution.substitute_remaining(&numbers);
-        let mut t = self.substitute(&substitution, Some(index))?;
+        let mut t = self.substitute_skip_assumption(&substitution, Some(index))?;
         t.assumptions.extend_from_slice(&other.assumptions);
         t.assumptions.shrink_to_fit();
         t.dvrs.extend_from_slice(&other.dvrs);
         t.dvrs.shrink_to_fit();
-        t.standardize()?;
         Ok(t)
     }
 }
