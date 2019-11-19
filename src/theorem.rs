@@ -6,12 +6,12 @@ use crate::{
     types::*,
 };
 
-/// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or _assumptions_
-/// and a _conclusion_
+/// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or __assumptions__
+/// and a __conclusion__
 ///
-/// A theorem could represent something like "if x0 is provable and (x0 -> x1) is provable then b
-/// is provable". In this example the assumptions would be "x0" and "x0 -> x1" and the conclusion
-/// would be "x1".
+/// A theorem could represent something like _if x0 is provable and (x0 -> x1) is provable then b
+/// is provable_. In this example the assumptions would be _x0_ and _x0 -> x1_ and the conclusion
+/// would be _x1_.
 ///
 /// When using this struct it is guaranteed that only valid theorems can be constructed (using
 /// [`substitute`](#method.substitute), [`combine`](#method.combine) and
