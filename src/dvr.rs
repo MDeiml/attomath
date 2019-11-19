@@ -1,62 +1,96 @@
-use crate::{
-    error::ProofError, expression::is_operator, formatter::Formatter, substitution::Substitution,
-    types::*,
-};
-use nom::{
-    character::complete::{char, space1},
-    combinator::map_opt,
-    error::VerboseError,
-    sequence::tuple,
-    IResult,
-};
+use crate::{error::ProofError, statement::is_operator, substitution::Substitution, types::*};
 
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
+/// A _distince variable relation_ for expressing that two variables must be different.
+///
+/// In the default case it is always assumed that all statements are correct if you replace
+/// a variable with a different subexpression. This leads to logical errors in statements like
+/// `forall x0. exists x1. x0 != x1`.
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
 pub struct DVR(Identifier, Identifier);
 
 impl DVR {
-    pub fn serialize_vec(dvrs: &Vec<DVR>) -> Vec<u8> {
-        let mut res = Vec::with_capacity(dvrs.len() * 2 * 2);
-        for DVR(a, b) in dvrs {
-            res.push((a >> 8) as u8);
-            res.push((a & 0xff) as u8);
-            res.push((b >> 8) as u8);
-            res.push((b & 0xff) as u8);
-        }
-        res
-    }
-
-    pub fn deserialize_vec(raw: &[u8]) -> Vec<Self> {
-        let mut res = Vec::with_capacity(raw.len() / 4);
-        for i in 0..raw.len() / 4 {
-            let a = ((raw[4 * i] as i16) << 8) | raw[4 * i + 1] as i16;
-            let b = ((raw[4 * i + 2] as i16) << 8) | raw[4 * i + 3] as i16;
-            res.push(DVR::new(a, b).unwrap());
-        }
-        res
-    }
-
-    pub fn format(&self, fmt: &Formatter) -> String {
+    /// Returns this `DVR`s variables
+    pub fn variables(&self) -> (Identifier, Identifier) {
         let DVR(a, b) = self;
-        format!("{} <> {}", fmt.format_variable(&a), fmt.format_variable(&b))
+        (*a, *b)
     }
 
+    /// Creates a new `DVR` restricting `a` and `b` from being the same variable.
+    ///
+    /// # Errors
+    /// This function fails with a `DVRError` if `a == b`
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::dvr::DVR;
+    /// use attomath::error::ProofError;
+    ///
+    /// let dvr = DVR::new(0, 1);
+    /// assert_eq!(dvr.map(|d| d.variables()), Ok((0, 1)));
+    ///
+    /// let dvr = DVR::new(1, 1);
+    /// assert_eq!(dvr, Err(ProofError::DVRError(1)));
+    /// ```
     pub fn new(a: Identifier, b: Identifier) -> Result<Self, ProofError> {
         if a < b {
             Ok(DVR(a, b))
         } else if a > b {
             Ok(DVR(b, a))
         } else {
-            Err(ProofError::DVRError)
+            Err(ProofError::DVRError(a))
         }
     }
 
+    /// Uses the given `Substitution` to create new `DVR`s for each pair of variables in the new
+    /// expressions for `self.variables()`.
+    ///
+    /// # Errors
+    /// The `Iterator` will produce a `DVRError` if the substitutions for this `DVR`s' variables
+    /// contains common variables
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::dvr::DVR;
+    /// use attomath::substitution::WholeSubstitution;
+    /// use attomath::error::ProofError;
+    ///
+    /// let dvr = DVR::new(0, 1).unwrap();
+    /// let mut sub = WholeSubstitution::with_capacity(2);
+    /// let expr0 = vec![-2, 0, 1];
+    /// sub.insert(0, expr0.as_slice());
+    /// let expr1 = vec![2];
+    /// sub.insert(1, expr1.as_slice());
+    ///
+    /// let mut new_dvrs = dvr.substitute(&sub).collect::<Result<Vec<_>, _>>();
+    /// new_dvrs = new_dvrs.map(|mut ds| {
+    ///     ds.sort();
+    ///     ds.dedup();
+    ///     ds
+    /// });
+    ///
+    /// let mut expected = vec![DVR::new(0, 2).unwrap(), DVR::new(1, 2).unwrap()];
+    /// expected.sort();
+    /// expected.dedup();
+    /// assert_eq!(new_dvrs, Ok(expected));
+    ///
+    /// let dvr = DVR::new(0, 1).unwrap();
+    /// let mut sub = WholeSubstitution::with_capacity(2);
+    /// let expr0 = vec![-2, 0, 1];
+    /// sub.insert(0, expr0.as_slice());
+    /// let expr1 = vec![-2, 1, 2];
+    /// sub.insert(1, expr1.as_slice());
+    ///
+    /// let new_dvrs = dvr.substitute(&sub).collect::<Result<Vec<_>, _>>();
+    ///
+    /// assert_eq!(new_dvrs, Err(ProofError::DVRError(1)));
+    /// ```
     pub fn substitute<'a, S: Substitution<'a>>(
         &'a self,
         substitution: &'a S,
     ) -> impl Iterator<Item = Result<DVR, ProofError>> + 'a {
         let DVR(a, b) = self;
-        let sub_a = substitution.get_substitution(a);
-        let sub_b = substitution.get_substitution(b);
+        let sub_a = substitution.substitution(a);
+        let sub_b = substitution.substitution(b);
         sub_a
             .iter()
             .filter(|symb| !is_operator(**symb))
@@ -69,30 +103,43 @@ impl DVR {
             .flatten()
     }
 
-    pub fn standardize(&mut self, var_map: &Vec<Option<Identifier>>) {
+    /// Turns this dvr into its standard representation, numbering variables in the order of their
+    /// apperance. And sorting this `DVR`s variables;
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::dvr::DVR;
+    ///
+    /// let mut dvr = DVR::new(0, 2).unwrap();
+    /// let mut var_map = vec![None; 6];
+    /// var_map[2] = Some(3);
+    /// let mut next_var = 5;
+    /// dvr.standardize(&mut var_map, &mut next_var);
+    /// assert_eq!(dvr, DVR::new(3, 5).unwrap());
+    /// assert_eq!(var_map, vec![Some(5), None, Some(3), None, None, None]);
+    /// assert_eq!(next_var, 6);
+    pub fn standardize(
+        &mut self,
+        var_map: &mut Vec<Option<Identifier>>,
+        next_var: &mut Identifier,
+    ) {
         let DVR(a, b) = self;
-        *a = var_map[*a as usize].expect("DVR with free variable");
-        *b = var_map[*b as usize].expect("DVR with free variable");
+        *a = var_map[*a as usize].unwrap_or_else(|| {
+            let res = *next_var;
+            *next_var += 1;
+            var_map[*a as usize] = Some(res);
+            res
+        });
+        *b = var_map[*b as usize].unwrap_or_else(|| {
+            let res = *next_var;
+            *next_var += 1;
+            var_map[*b as usize] = Some(res);
+            res
+        });
         if a > b {
             let temp = *a;
             *a = *b;
             *b = temp;
         }
-    }
-
-    pub fn parse<'a>(
-        fmt: &Formatter,
-        input: &'a str,
-    ) -> IResult<&'a str, Self, VerboseError<&'a str>> {
-        map_opt(
-            tuple((
-                char('d'),
-                space1,
-                |s| fmt.parse_variable(s),
-                space1,
-                |s| fmt.parse_variable(s),
-            )),
-            |(_, _, a, _, b)| Self::new(a, b).ok(),
-        )(input)
     }
 }
