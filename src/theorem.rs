@@ -1,8 +1,8 @@
 use crate::{
     dvr::DVR,
     error::ProofError,
-    statement::{is_operator, OwnedStatement, Statement},
-    substitution::{Substitution, WholeSubstitution},
+    expression::{is_operator, Expression, Substitution, WholeSubstitution},
+    statement::OwnedStatement,
     types::*,
 };
 
@@ -59,40 +59,15 @@ impl Theorem {
     /// their apperance and sorting the assumptions and dvrs (see
     /// [`Statement::standardize`](../statement/trait.Statement.html#standardize) and
     /// [`DVR::standardize`](../dvr/struct.DVR.html#standardize))
-    ///
-    /// # Example
-    /// ```
-    /// use attomath::statement::OwnedStatement;
-    /// use attomath::theorem::Theorem;
-    ///
-    /// let conclusion = OwnedStatement::from_raw(0, vec![3]).unwrap();
-    /// let assumptions = vec![
-    ///     OwnedStatement::from_raw(0, vec![10]).unwrap(),
-    ///     OwnedStatement::from_raw(0, vec![-2, 10, 3]).unwrap(),
-    /// ];
-    /// // |- x10, |- (x10 -> x3) => x3
-    /// let mut theorem1 = Theorem::new(conclusion, assumptions, vec![]);
-    ///
-    /// let conclusion = OwnedStatement::from_raw(0, vec![2]).unwrap();
-    /// let assumptions = vec![
-    ///     OwnedStatement::from_raw(0, vec![-2, 1, 2]).unwrap(),
-    ///     OwnedStatement::from_raw(0, vec![1]).unwrap(),
-    /// ];
-    /// // |- (x1 -> x2), |- x1 => x2
-    /// let mut theorem2 = Theorem::new(conclusion, assumptions, vec![]);
-    /// assert!(theorem1 != theorem2);
-    ///
-    /// theorem1.standardize();
-    /// theorem2.standardize();
-    /// assert_eq!(theorem1, theorem2);
-    /// ```
     pub fn standardize(&mut self) {
         let max_var = self.max_var();
         let mut var_map = vec![None; max_var as usize + 1];
         let mut next_var = 0;
-        self.conclusion.standardize(&mut var_map, &mut next_var);
+        self.conclusion
+            .expression
+            .standardize(&mut var_map, &mut next_var);
         for a in self.assumptions.iter_mut() {
-            a.standardize(&mut var_map, &mut next_var);
+            a.expression.standardize(&mut var_map, &mut next_var);
         }
         for dvr in self.dvrs.iter_mut() {
             dvr.standardize(&mut var_map, &mut next_var);
@@ -106,34 +81,19 @@ impl Theorem {
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
     /// together with
     /// [`OwnedSubstitution::with_capacity`](../substitution/struct.OwnedSubstitution.html#method.with_capacity)
-    /// # Example
-    /// ```
-    /// use attomath::statement::OwnedStatement;
-    /// use attomath::theorem::Theorem;
-    ///
-    /// let conclusion = OwnedStatement::from_raw(0, vec![3]).unwrap();
-    /// let assumptions = vec![
-    ///     OwnedStatement::from_raw(0, vec![10]).unwrap(),
-    ///     OwnedStatement::from_raw(0, vec![-2, 10, 3]).unwrap(),
-    /// ];
-    /// // |- x10, |- (x10 -> x3) => x3
-    /// let mut theorem = Theorem::new(conclusion, assumptions, vec![]);
-    /// assert_eq!(theorem.max_var(), 10);
-    /// ```
     pub fn max_var(&self) -> Identifier {
-        *self
-            .conclusion
-            .expression()
-            .iter()
+        self.conclusion
+            .expression
+            .variables()
             .chain(
                 self.assumptions
                     .iter()
-                    .map(|st| st.expression().iter())
+                    .map(|st| st.expression.variables())
                     .flatten(),
             )
-            .filter(|symb| !is_operator(**symb))
+            .filter(|symb| !is_operator(*symb))
             .max()
-            .unwrap_or(&-1)
+            .unwrap_or(-1)
     }
 
     /// Uses the given substitution on this theorem's assumptions, dvrs and conclusion to create a
@@ -145,37 +105,6 @@ impl Theorem {
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
     /// dvrs.
     ///
-    /// # Example
-    /// ```
-    /// use attomath::statement::{OwnedStatement, Statement};
-    /// use attomath::dvr::DVR;
-    /// use attomath::theorem::Theorem;
-    /// use attomath::substitution::WholeSubstitution;
-    /// use attomath::error::ProofError;
-    ///
-    /// let conclusion = OwnedStatement::from_raw(0, vec![-2, 0, 2]).unwrap();
-    /// let assumptions = vec![
-    ///     OwnedStatement::from_raw(0, vec![-2, 1, 2]).unwrap(),
-    ///     OwnedStatement::from_raw(0, vec![-2, 0, 1]).unwrap(),
-    /// ];
-    /// let theorem = Theorem::new(conclusion.clone(), assumptions, vec![]);
-    ///
-    /// let mut sub = WholeSubstitution::with_capacity(3);
-    /// let expr = vec![-2, 1, 2];
-    /// sub.insert(0, expr.as_slice());
-    /// let new_theorem = theorem.substitute(&sub).expect("This substitution should not fail");
-    ///
-    /// assert_eq!(new_theorem.conclusion().expression(), vec![-2, -2, 1, 2, 2].as_slice());
-    /// assert_eq!(new_theorem.assumptions()[0].expression(), vec![-2, 1, 2].as_slice());
-    /// assert_eq!(new_theorem.assumptions()[1].expression(), vec![-2, -2, 1, 2, 1].as_slice());
-    ///
-    /// let dvrs = vec![
-    ///     DVR::new(0, 1).unwrap()
-    /// ];
-    /// let theorem = Theorem::new(conclusion, vec![], dvrs);
-    /// let res = theorem.substitute(&sub);
-    /// assert_eq!(res, Err(ProofError::DVRError(1)));
-    /// ```
     pub fn substitute<'a, S: Substitution<'a>>(
         &'a self,
         substitution: &'a S,
@@ -228,36 +157,6 @@ impl Theorem {
     /// [`standardize`](#method.standardize))
     /// * `ParameterError` - if `index >= self.assumptions().len()`
     ///
-    /// # Example
-    /// ```
-    /// use attomath::theorem::Theorem;
-    /// use attomath::statement::{OwnedStatement, Statement};
-    ///
-    /// // |- x0, |- (x0 -> x1) => |- x1
-    /// let ax_mp = Theorem::new(
-    ///     OwnedStatement::from_raw(0, vec![1]).unwrap(),
-    ///     vec![
-    ///         OwnedStatement::from_raw(0, vec![0]).unwrap(),
-    ///         OwnedStatement::from_raw(0, vec![-2, 0, 1]).unwrap(),
-    ///     ],
-    ///     vec![],
-    /// );
-    ///
-    /// // |- x2 => |- (x3 -> x4)
-    /// let t0 = Theorem::new(
-    ///     OwnedStatement::from_raw(0, vec![-2, 3, 4]).unwrap(),
-    ///     vec![
-    ///         OwnedStatement::from_raw(0, vec![2]).unwrap()
-    ///     ],
-    ///     vec![],
-    /// );
-    ///
-    /// // |- x3, |- x2 => x4
-    /// let t1 = ax_mp.combine(&t0, 1).expect("This should not fail");
-    /// assert_eq!(t1.conclusion().expression(), vec![4].as_slice());
-    /// assert_eq!(t1.assumptions()[0].expression(), vec![3].as_slice());
-    /// assert_eq!(t1.assumptions()[1].expression(), vec![2].as_slice());
-    /// ```
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
         if index > self.assumptions.len() {
             return Err(ProofError::ParameterError(index, self.assumptions.len()));
@@ -268,7 +167,9 @@ impl Theorem {
             .conclusion
             .unify(&self.assumptions[index], &mut substitution)?;
         let shift = other.max_var() + 1;
-        let numbers = (shift..=shift + max_var as Identifier + 1).collect::<Vec<_>>();
+        let numbers = (shift..=shift + max_var as Identifier + 1)
+            .map(|symb| Expression::from_raw(vec![symb]).expect("symb should be a variable"))
+            .collect::<Vec<_>>();
         substitution.substitute_remaining(&numbers);
         let mut t = self.substitute_skip_assumption(&substitution, Some(index))?;
         t.assumptions.extend_from_slice(&other.assumptions);

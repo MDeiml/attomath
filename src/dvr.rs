@@ -1,4 +1,8 @@
-use crate::{error::ProofError, statement::is_operator, substitution::Substitution, types::*};
+use crate::{
+    error::ProofError,
+    expression::{is_operator, Substitution},
+    types::*,
+};
 
 /// A _distince variable relation_ for expressing that two variables must be different.
 ///
@@ -32,7 +36,11 @@ impl DVR {
     /// assert_eq!(dvr, Err(ProofError::DVRError(1)));
     /// ```
     pub fn new(a: Identifier, b: Identifier) -> Result<Self, ProofError> {
-        if a < b {
+        if is_operator(a) {
+            Err(ProofError::DVRError(a))
+        } else if is_operator(b) {
+            Err(ProofError::DVRError(b))
+        } else if a < b {
             Ok(DVR(a, b))
         } else if a > b {
             Ok(DVR(b, a))
@@ -51,15 +59,15 @@ impl DVR {
     /// # Example
     /// ```
     /// use attomath::dvr::DVR;
-    /// use attomath::substitution::WholeSubstitution;
+    /// use attomath::expression::{Expression, WholeSubstitution};
     /// use attomath::error::ProofError;
     ///
     /// let dvr = DVR::new(0, 1).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
-    /// let expr0 = vec![-2, 0, 1];
-    /// sub.insert(0, expr0.as_slice());
-    /// let expr1 = vec![2];
-    /// sub.insert(1, expr1.as_slice());
+    /// let expr0 = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// sub.insert(0, expr0.to_slice());
+    /// let expr1 = Expression::from_raw(vec![2]).unwrap();
+    /// sub.insert(1, expr1.to_slice());
     ///
     /// let mut new_dvrs = dvr.substitute(&sub).collect::<Result<Vec<_>, _>>();
     /// new_dvrs = new_dvrs.map(|mut ds| {
@@ -75,10 +83,10 @@ impl DVR {
     ///
     /// let dvr = DVR::new(0, 1).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
-    /// let expr0 = vec![-2, 0, 1];
-    /// sub.insert(0, expr0.as_slice());
-    /// let expr1 = vec![-2, 1, 2];
-    /// sub.insert(1, expr1.as_slice());
+    /// let expr0 = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// sub.insert(0, expr0.to_slice());
+    /// let expr1 = Expression::from_raw(vec![-2, 1, 2]).unwrap();
+    /// sub.insert(1, expr1.to_slice());
     ///
     /// let new_dvrs = dvr.substitute(&sub).collect::<Result<Vec<_>, _>>();
     ///
@@ -92,13 +100,17 @@ impl DVR {
         let sub_a = substitution.substitution(a);
         let sub_b = substitution.substitution(b);
         sub_a
+            .data()
             .iter()
-            .filter(|symb| !is_operator(**symb))
+            .copied()
+            .filter(|s| !is_operator(*s))
             .map(move |new_a| {
                 sub_b
+                    .data()
                     .iter()
-                    .filter(|symb| !is_operator(**symb))
-                    .map(move |new_b| Self::new(*new_a, *new_b))
+                    .copied()
+                    .filter(|s| !is_operator(*s))
+                    .map(move |new_b| Self::new(new_a, new_b))
             })
             .flatten()
     }
