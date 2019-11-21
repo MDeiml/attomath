@@ -5,40 +5,55 @@ use crate::{
 };
 use std::borrow::Borrow;
 
+/// Type alias for a statement that owns its expression
 pub type OwnedStatement = Statement<Box<[Identifier]>>;
 
+/// A a combination of a judgement and an `Expression`, for example _x0 -> x0 is provable_
+///
+/// The __judgement__ is given in form of an integer, but often represents some meaning, like _this
+/// expression is provable_ or _this expression is syntactically correct_.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
 pub struct Statement<T: Borrow<[Identifier]>> {
     pub judgement: Judgement,
     pub expression: Expression<T>,
 }
-
-/// A a combination of a judgement and an expression, e.g. _x0 -> x0 is provable_
-///
-/// The __judgement__ is given in form of an integer, but often represents some meaning, like _this
-/// expression is provable_ or _this expression is syntactically correct_.
-///
-/// The __expression__ is a sequence of integers, with the following meaning:
-/// * A non-negative integer stands for a __variable__ uniquely identified by this integer
-/// * A integer less or equal to `-2` stands for an __operator__. The operator has no associated
-/// meaning in this context, but in a normal usecase could represent some expression or operation,
-/// e.g. an implication or an addition
-/// * The integer `-1` is a __special constant__ node to be used for operators with arity 0 or 1
-///
-/// A valid expression must have of one of the following formats:
-/// * A __variable__, or the __special constant__ `-1`
-/// * A __operator__, followed by two valid expression (the operands)
-///
-/// For example a valid sequences would be `[-2, 0, -2, 1, 0]` or `[-3, -2, 0, 0, -1]` which could
-/// stand for _x0 -> (x1 -> x0)_ or _not (x0 -> x0)_ respectively.
-///
-/// To create operators of arity 0 and 1, one can use the __special constant__ `-1`. For example
-/// `-2, 0, -1` is a valid expression which could stand for _not x0_.
-///
-/// To create operators of arity 3 or higher, one can split the up into multiple operators of artiy
-/// 2.
-/// For example `-2, 0, -3, 1, 2` is a valid sequence which could stand for _if x0 then x1 else x2_
 impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
+    // TODO: Remove weird eq from example
+    /// Convenience function for unifying the expressions of two judgements (see
+    /// [`Expression::unify`](../expression/struct.Expression.html#method.unify)).
+    ///
+    /// # Errors
+    /// * `JudgementMismatch` - if `self.judgement != other.judgement`
+    /// * `VariableMismatch` or `OperatorMismatch` - if `self.expression.unify(other.expression)`
+    /// fails
+    ///
+    /// # Example
+    /// ```
+    /// use attomath::statement::Statement;
+    /// use attomath::expression::{Expression, WholeSubstitution};
+    /// use attomath::error::ProofError;
+    ///
+    /// let st1 = Statement {
+    ///     judgement: 0,
+    ///     expression: Expression::from_raw(vec![-2, 0, -2, 1, 0].into_boxed_slice()).unwrap()
+    /// };
+    /// let st2 = Statement {
+    ///     judgement: 0,
+    ///     expression: Expression::from_raw(vec![-2, 0, 1]).unwrap()
+    /// };
+    /// let mut sub = WholeSubstitution::with_capacity(2);
+    /// let res = st1.unify(&st2, &mut sub);
+    /// assert_eq!(res, Ok(()));
+    /// assert_eq!(st2.substitute(&sub), st1);
+    ///
+    /// let st2 = Statement {
+    ///     judgement: 1,
+    ///     expression: Expression::from_raw(vec![-2, 0, 1]).unwrap()
+    /// };
+    /// let mut sub = WholeSubstitution::with_capacity(2);
+    /// let res = st1.unify(&st2, &mut sub);
+    /// assert_eq!(res, Err(ProofError::JudgementMismatch(0, 1)));
+    /// ```
     pub fn unify<'a, S: Borrow<[Identifier]>>(
         &'a self,
         other: &Statement<S>,
@@ -54,6 +69,8 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
         return Ok(());
     }
 
+    /// Convenience function for using a `Substitution` on this judgements expression (see
+    /// [`Expression::substitute`](../expression/struct.Expression.html#method.substitute))
     pub fn substitute<'a, S: Substitution<'a>>(
         &self,
         substitution: &'a S,
