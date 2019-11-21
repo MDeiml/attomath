@@ -57,8 +57,8 @@ impl Theorem {
 
     /// Turns this theorem into its standard representation, numbering variables in the order of
     /// their apperance and sorting the assumptions and dvrs (see
-    /// [`Statement::standardize`](../statement/trait.Statement.html#standardize) and
-    /// [`DVR::standardize`](../dvr/struct.DVR.html#standardize))
+    /// [`Expression::standardize`](../expression/struct.Expression.html#method.standardize) and
+    /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize))
     pub fn standardize(&mut self) {
         let max_var = self.max_var();
         let mut var_map = vec![None; max_var as usize + 1];
@@ -80,7 +80,7 @@ impl Theorem {
 
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
     /// together with
-    /// [`OwnedSubstitution::with_capacity`](../substitution/struct.OwnedSubstitution.html#method.with_capacity)
+    /// [`WholeSubstitution::with_capacity`](../expression/struct.WholeSubstitution.html#method.with_capacity)
     pub fn max_var(&self) -> Identifier {
         self.conclusion
             .expression
@@ -98,12 +98,12 @@ impl Theorem {
 
     /// Uses the given substitution on this theorem's assumptions, dvrs and conclusion to create a
     /// new theorem. (see
-    /// [`Statement::substitute`](../statement/trait.Statement.html#method.substitute) and
+    /// [`Statement::substitute`](../statement/struct.Statement.html#method.substitute) and
     /// [`DVR::substitute`](../dvr/struct.DVR.html#method.substitute))
     ///
     /// # Errors
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
-    /// dvrs.
+    /// `DVR`s.
     ///
     pub fn substitute<'a, S: Substitution<'a>>(
         &'a self,
@@ -151,10 +151,9 @@ impl Theorem {
     /// This can product the following errors:
     /// * `OperatorMismatch`, `VariableMismatch` or `JudgementMismatch` - if the conclusion of
     /// `other` cannot be unified with the specified assumption (see
-    /// [`Statement::unify`](../statement/trait.Statement.html#method.unify))
-    /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into te
-    /// specified assumption violates one of this theorems' `DVR`s (see
-    /// [`standardize`](#method.standardize))
+    /// [`Statement::unify`](../statement/struct.Statement.html#method.unify))
+    /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into the
+    /// specified assumption violates one of this theorems' `DVR`s
     /// * `ParameterError` - if `index >= self.assumptions().len()`
     ///
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
