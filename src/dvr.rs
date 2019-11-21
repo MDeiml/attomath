@@ -3,6 +3,8 @@ use crate::{
     expression::{is_operator, Substitution},
     types::*,
 };
+#[cfg(feature = "use-serde")]
+use serde::{Deserialize, Serialize};
 
 /// A _distince variable relation_ for expressing that two variables must be different.
 ///
@@ -10,6 +12,7 @@ use crate::{
 /// a variable with a different subexpression. This leads to logical errors in statements like
 /// `forall x0. exists x1. x0 != x1`.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct DVR(Identifier, Identifier);
 
 impl DVR {

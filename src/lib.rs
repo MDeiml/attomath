@@ -48,6 +48,8 @@
 //! [statement]: statement/struct.Statement.html
 //! [dvr]: dvr/struct.DVR.html
 //! [theorem]: theorem/struct.Theorem.html
+#[cfg(feature = "use-serde")]
+extern crate serde;
 
 pub mod dvr;
 pub mod error;

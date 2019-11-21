@@ -5,6 +5,8 @@ use crate::{
     statement::OwnedStatement,
     types::*,
 };
+#[cfg(feature = "use-serde")]
+use serde::{Deserialize, Serialize};
 
 /// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or __assumptions__
 /// and a __conclusion__
@@ -18,6 +20,7 @@ use crate::{
 /// [`standardize`](#method.standardize)) provided that only valid theorems (or axioms) are
 /// constructed using [`new`](#method.new).
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct Theorem {
     conclusion: OwnedStatement,
     assumptions: Vec<OwnedStatement>,
