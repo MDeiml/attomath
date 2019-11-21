@@ -180,3 +180,32 @@ impl Theorem {
         Ok(t)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn serde() {
+        use crate::statement::Statement;
+
+        let conclusion = Statement {
+            judgement: 0,
+            expression: Expression::from_raw(vec![1].into_boxed_slice()).unwrap(),
+        };
+        let assumptions = vec![
+            Statement {
+                judgement: 0,
+                expression: Expression::from_raw(vec![0].into_boxed_slice()).unwrap(),
+            },
+            Statement {
+                judgement: 0,
+                expression: Expression::from_raw(vec![-2, 0, 1].into_boxed_slice()).unwrap(),
+            },
+        ];
+        let theorem = Theorem::new(conclusion, assumptions, vec![]);
+        let enc = bincode::serialize(&theorem).unwrap();
+        let dec = bincode::deserialize::<Theorem>(&enc).unwrap();
+        assert_eq!(dec, theorem);
+    }
+}

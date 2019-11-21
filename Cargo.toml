@@ -11,3 +11,6 @@ use-serde = ['serde']
 
 [dependencies]
 serde = {version = "1.0", features = ["derive"], optional = true}
+
+[dev-dependencies]
+bincode = "1.2"

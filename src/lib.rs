@@ -48,6 +48,8 @@
 //! [statement]: statement/struct.Statement.html
 //! [dvr]: dvr/struct.DVR.html
 //! [theorem]: theorem/struct.Theorem.html
+#[cfg(test)]
+extern crate bincode;
 #[cfg(feature = "use-serde")]
 extern crate serde;
 
