@@ -147,6 +147,9 @@ impl Theorem {
 
     /// Creates a new `Theorem` by applying `other` to this theorem's assumption with index `index`
     ///
+    /// # Panics
+    /// This may panic if `index > self.assumptions().len`
+    ///
     /// # Errors
     /// This can product the following errors:
     /// * `OperatorMismatch`, `VariableMismatch` or `JudgementMismatch` - if the conclusion of
@@ -154,12 +157,8 @@ impl Theorem {
     /// [`Statement::unify`](../statement/struct.Statement.html#method.unify))
     /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into the
     /// specified assumption violates one of this theorems' `DVR`s
-    /// * `ParameterError` - if `index >= self.assumptions().len()`
     ///
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
-        if index > self.assumptions.len() {
-            return Err(ProofError::ParameterError(index, self.assumptions.len()));
-        }
         let max_var = self.max_var();
         let mut substitution = WholeSubstitution::with_capacity(max_var as usize + 1);
         other
