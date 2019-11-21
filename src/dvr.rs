@@ -4,6 +4,33 @@ use crate::{
     types::*,
 };
 
+pub struct Iter {
+    a: Vec<Identifier>,
+    b: Vec<Identifier>,
+    index: usize,
+}
+
+impl Iterator for Iter {
+    type Item = Result<DVR, ProofError>;
+
+    fn next(&mut self) -> Option<Result<DVR, ProofError>> {
+        if self.index >= self.a.len() * self.b.len() {
+            return None;
+        }
+        let res = DVR::new(
+            self.a[self.index % self.a.len()],
+            self.b[self.index / self.a.len()],
+        );
+        self.index += 1;
+        Some(res)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let rem = self.a.len() * self.b.len() - self.index;
+        (rem, Some(rem))
+    }
+}
+
 /// A _distince variable relation_ for expressing that two variables must be different.
 ///
 /// In the default case it is always assumed that all statements are correct if you replace
@@ -92,27 +119,29 @@ impl DVR {
     ///
     /// assert_eq!(new_dvrs, Err(ProofError::DVRError(1)));
     /// ```
-    pub fn substitute<'a, S: Substitution<'a>>(
-        &'a self,
-        substitution: &'a S,
-    ) -> impl Iterator<Item = Result<DVR, ProofError>> + 'a {
+    pub fn substitute<S: Substitution>(&self, substitution: &S) -> Iter {
         let DVR(a, b) = self;
-        let sub_a = substitution.substitution(a);
-        let sub_b = substitution.substitution(b);
-        sub_a
-            .data()
-            .iter()
-            .copied()
-            .filter(|s| !is_operator(*s))
-            .map(move |new_a| {
-                sub_b
-                    .data()
-                    .iter()
-                    .copied()
-                    .filter(|s| !is_operator(*s))
-                    .map(move |new_b| Self::new(new_a, new_b))
-            })
-            .flatten()
+        let vars_a = if let Some(sub) = substitution.substitution_opt(*a) {
+            let mut res = sub.variables().collect::<Vec<_>>();
+            res.sort();
+            res.dedup();
+            res
+        } else {
+            vec![*a]
+        };
+        let vars_b = if let Some(sub) = substitution.substitution_opt(*b) {
+            let mut res = sub.variables().collect::<Vec<_>>();
+            res.sort();
+            res.dedup();
+            res
+        } else {
+            vec![*b]
+        };
+        Iter {
+            a: vars_a,
+            b: vars_b,
+            index: 0,
+        }
     }
 
     /// Turns this dvr into its standard representation, numbering variables in the order of their

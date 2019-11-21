@@ -1,7 +1,9 @@
 use crate::{
     dvr::DVR,
     error::ProofError,
-    expression::{is_operator, Expression, Substitution, WholeSubstitution},
+    expression::{
+        is_operator, ChainSubstitution, ShiftSubstitution, Substitution, WholeSubstitution,
+    },
     statement::OwnedStatement,
     types::*,
 };
@@ -105,16 +107,13 @@ impl Theorem {
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
     /// dvrs.
     ///
-    pub fn substitute<'a, S: Substitution<'a>>(
-        &'a self,
-        substitution: &'a S,
-    ) -> Result<Self, ProofError> {
+    pub fn substitute<S: Substitution>(&self, substitution: &S) -> Result<Self, ProofError> {
         self.substitute_skip_assumption(substitution, None)
     }
 
-    fn substitute_skip_assumption<'a, S: Substitution<'a>>(
-        &'a self,
-        substitution: &'a S,
+    fn substitute_skip_assumption<S: Substitution>(
+        &self,
+        substitution: &S,
         skip_assumption: Option<usize>,
     ) -> Result<Self, ProofError> {
         let conclusion = self.conclusion.substitute(substitution);
@@ -131,13 +130,12 @@ impl Theorem {
             })
             .map(|a| a.substitute(substitution))
             .collect();
-        let dvrs: Result<Vec<DVR>, ProofError> = self
+        let dvrs = self
             .dvrs
             .iter()
             .map(|dvr| dvr.substitute(substitution))
             .flatten()
-            .collect();
-        let dvrs = dvrs?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Theorem {
             conclusion,
             assumptions,
@@ -167,10 +165,11 @@ impl Theorem {
             .conclusion
             .unify(&self.assumptions[index], &mut substitution)?;
         let shift = other.max_var() + 1;
-        let numbers = (shift..=shift + max_var as Identifier + 1)
-            .map(|symb| Expression::from_raw(vec![symb]).expect("symb should be a variable"))
-            .collect::<Vec<_>>();
-        substitution.substitute_remaining(&numbers);
+        let shift_sub = ShiftSubstitution::new(shift);
+        let substitution = ChainSubstitution {
+            first: substitution,
+            then: shift_sub,
+        };
         let mut t = self.substitute_skip_assumption(&substitution, Some(index))?;
         t.assumptions.extend_from_slice(&other.assumptions);
         t.assumptions.shrink_to_fit();

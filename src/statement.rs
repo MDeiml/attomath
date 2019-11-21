@@ -54,10 +54,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
         return Ok(());
     }
 
-    pub fn substitute<'a, S: Substitution<'a>>(
-        &self,
-        substitution: &'a S,
-    ) -> Statement<Box<[Identifier]>> {
+    pub fn substitute<S: Substitution>(&self, substitution: &S) -> Statement<Box<[Identifier]>> {
         Statement {
             judgement: self.judgement,
             expression: self.expression.substitute(substitution),
