@@ -7,6 +7,8 @@ use crate::{
     statement::OwnedStatement,
     types::*,
 };
+#[cfg(feature = "use-serde")]
+use serde::{Deserialize, Serialize};
 
 /// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or __assumptions__
 /// and a __conclusion__
@@ -20,6 +22,7 @@ use crate::{
 /// [`standardize`](#method.standardize)) provided that only valid theorems (or axioms) are
 /// constructed using [`new`](#method.new).
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct Theorem {
     conclusion: OwnedStatement,
     assumptions: Vec<OwnedStatement>,
@@ -59,8 +62,8 @@ impl Theorem {
 
     /// Turns this theorem into its standard representation, numbering variables in the order of
     /// their apperance and sorting the assumptions and dvrs (see
-    /// [`Statement::standardize`](../statement/trait.Statement.html#standardize) and
-    /// [`DVR::standardize`](../dvr/struct.DVR.html#standardize))
+    /// [`Expression::standardize`](../expression/struct.Expression.html#method.standardize) and
+    /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize))
     pub fn standardize(&mut self) {
         let max_var = self.max_var();
         let mut var_map = vec![None; max_var as usize + 1];
@@ -82,7 +85,7 @@ impl Theorem {
 
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
     /// together with
-    /// [`OwnedSubstitution::with_capacity`](../substitution/struct.OwnedSubstitution.html#method.with_capacity)
+    /// [`WholeSubstitution::with_capacity`](../expression/struct.WholeSubstitution.html#method.with_capacity)
     pub fn max_var(&self) -> Identifier {
         self.conclusion
             .expression
@@ -100,12 +103,12 @@ impl Theorem {
 
     /// Uses the given substitution on this theorem's assumptions, dvrs and conclusion to create a
     /// new theorem. (see
-    /// [`Statement::substitute`](../statement/trait.Statement.html#method.substitute) and
+    /// [`Statement::substitute`](../statement/struct.Statement.html#method.substitute) and
     /// [`DVR::substitute`](../dvr/struct.DVR.html#method.substitute))
     ///
     /// # Errors
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
-    /// dvrs.
+    /// `DVR`s.
     ///
     pub fn substitute<S: Substitution>(&self, substitution: &S) -> Result<Self, ProofError> {
         self.substitute_skip_assumption(substitution, None)
@@ -145,20 +148,18 @@ impl Theorem {
 
     /// Creates a new `Theorem` by applying `other` to this theorem's assumption with index `index`
     ///
+    /// # Panics
+    /// This may panic if `index > self.assumptions().len`
+    ///
     /// # Errors
     /// This can product the following errors:
     /// * `OperatorMismatch`, `VariableMismatch` or `JudgementMismatch` - if the conclusion of
     /// `other` cannot be unified with the specified assumption (see
-    /// [`Statement::unify`](../statement/trait.Statement.html#method.unify))
-    /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into te
-    /// specified assumption violates one of this theorems' `DVR`s (see
-    /// [`standardize`](#method.standardize))
-    /// * `ParameterError` - if `index >= self.assumptions().len()`
+    /// [`Statement::unify`](../statement/struct.Statement.html#method.unify))
+    /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into the
+    /// specified assumption violates one of this theorems' `DVR`s
     ///
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
-        if index > self.assumptions.len() {
-            return Err(ProofError::ParameterError(index, self.assumptions.len()));
-        }
         let max_var = self.max_var();
         let mut substitution = WholeSubstitution::with_capacity(max_var as usize + 1);
         other
@@ -176,5 +177,34 @@ impl Theorem {
         t.dvrs.extend_from_slice(&other.dvrs);
         t.dvrs.shrink_to_fit();
         Ok(t)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn serde() {
+        use crate::{expression::Expression, statement::Statement};
+
+        let conclusion = Statement {
+            judgement: 0,
+            expression: Expression::from_raw(vec![1].into_boxed_slice()).unwrap(),
+        };
+        let assumptions = vec![
+            Statement {
+                judgement: 0,
+                expression: Expression::from_raw(vec![0].into_boxed_slice()).unwrap(),
+            },
+            Statement {
+                judgement: 0,
+                expression: Expression::from_raw(vec![-2, 0, 1].into_boxed_slice()).unwrap(),
+            },
+        ];
+        let theorem = Theorem::new(conclusion, assumptions, vec![]);
+        let enc = bincode::serialize(&theorem).unwrap();
+        let dec = bincode::deserialize::<Theorem>(&enc).unwrap();
+        assert_eq!(dec, theorem);
     }
 }

@@ -1,7 +1,10 @@
 use crate::{error::ProofError, types::*};
+#[cfg(feature = "use-serde")]
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::borrow::{Borrow, BorrowMut};
 
 #[derive(Clone, Eq, PartialOrd, Ord, Debug, Copy)]
+#[cfg_attr(feature = "use-serde", derive(Serialize))]
 pub struct Expression<T: Borrow<[Identifier]>> {
     data: T,
 }
@@ -9,6 +12,16 @@ pub struct Expression<T: Borrow<[Identifier]>> {
 impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialEq<Expression<S>> for Expression<T> {
     fn eq(&self, other: &Expression<S>) -> bool {
         self.data.borrow() == other.data.borrow()
+    }
+}
+
+#[cfg(feature = "use-serde")]
+impl<'de, T: Borrow<[Identifier]> + std::fmt::Debug + From<Vec<Identifier>> + Deserialize<'de>>
+    Deserialize<'de> for Expression<T>
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let data: Vec<_> = Deserialize::deserialize(deserializer)?;
+        Expression::from_raw(From::from(data)).ok_or(D::Error::custom("data not well formated"))
     }
 }
 
