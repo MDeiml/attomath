@@ -3,23 +3,26 @@
 //! still being able to describe any axiomatic system.
 //!
 //! # Main data structures
-//! There are three main data structures in `attomath`: [`Statement`s][statement], [`DVR`s][dvr]
-//! and [`Theorem`s][theorem].
+//! There are four main data structures in `attomath`: [`Expression`s][expression],
+//! [`Statement`s][statement], [`DVR`s][dvr] and [`Theorem`s][theorem].
+//!
+//! ## Expressions
+//! A [`Expression`][expression] is a binary AST (abstract syntax tree) and typically represents
+//! something like _a -> a_ or _a = b_. This is different from Metamath where expressions are
+//! encoded as strings. Using a AST instead makes comparisons and substitutions for expressions
+//! faster and more consistent, as it more closely represents the underlying formula.
 //!
 //! ## Statements
 //! A [`Statement`][statement] in `attomath` could represent something like _a -> a is provable_
 //! or _a = b is syntactically correct_.  It consists of a judgement (_is provable_, _is
-//! syntactically correct_) and a expression (_a -> a_, _a = b_). What differentiates `attomath`
-//! most from Metamath is that expressions are not stored as a string, but as a (binary) syntax
-//! tree encoded as a sequence in prefix order. This makes comparisons and substitutions faster and
-//! more consistent.
+//! syntactically correct_) and a [`Expression`][expression] (_a -> a_, _a = b_).
 //!
 //! ## DVRs
 //! A [`DVR`][dvr] is a way of preventing two variables to be equal.
 //!
 //! In general it is assumed, that a [`Statement`][statement] does not change its meaning if a
-//! variable is replaced with another variable, but this is not true in all cases. For this one can
-//! specify that two variables should not be replaced with the same variable or expressions
+//! variable is replaced with another variable, but this is not true in all cases. For this purpose
+//! one can specify that two variables should not be replaced with the same variable or expressions
 //! containing a common variable.
 //!
 //! ## Theorems
@@ -41,7 +44,8 @@
 //! _set variable_ have to be declared for every theorem. But it also leads to a more consistent
 //! format where a theorem is self-contained.
 //!
-//! [statement]: statement/trait.Statement.html
+//! [expression]: expression/struct.Expression.html
+//! [statement]: statement/struct.Statement.html
 //! [dvr]: dvr/struct.DVR.html
 //! [theorem]: theorem/struct.Theorem.html
 
