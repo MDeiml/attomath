@@ -52,6 +52,7 @@
 pub mod dvr;
 pub mod error;
 pub mod expression;
+pub mod formatter;
 pub mod statement;
 pub mod theorem;
 pub mod types;
