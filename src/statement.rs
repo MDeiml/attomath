@@ -3,8 +3,6 @@ use crate::{
     expression::{Expression, Substitution, WholeSubstitution},
     types::*,
 };
-#[cfg(feature = "use-serde")]
-use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
 
 /// Type alias for a statement that owns its expression
@@ -15,15 +13,8 @@ pub type OwnedStatement = Statement<Box<[Identifier]>>;
 /// The __judgement__ is given in form of an integer, but often represents some meaning, like _this
 /// expression is provable_ or _this expression is syntactically correct_.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
-#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct Statement<T: Borrow<[Identifier]>> {
     pub judgement: Judgement,
-    #[cfg_attr(
-        feature = "use-serde",
-        serde(bound(
-            deserialize = "T: std::fmt::Debug + From<Vec<Identifier>> + Deserialize<'de>"
-        ))
-    )]
     pub expression: Expression<T>,
 }
 
@@ -39,7 +30,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
     ///
     /// # Example
     /// ```
-    /// use attomath::statement::Statement;
+    /// use attomath::Statement;
     /// use attomath::expression::{Expression, WholeSubstitution};
     /// use attomath::error::ProofError;
     ///
@@ -79,7 +70,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
         return Ok(());
     }
 
-    /// Convenience function for using a `Substitution` on this judgements expression (see
+    /// Convenience function for using a `Substitution` on this statements expression (see
     /// [`Expression::substitute`](../expression/struct.Expression.html#method.substitute))
     pub fn substitute<S: Substitution>(&self, substitution: &S) -> Statement<Box<[Identifier]>> {
         Statement {

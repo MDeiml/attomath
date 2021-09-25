@@ -48,15 +48,26 @@
 //! [statement]: statement/struct.Statement.html
 //! [dvr]: dvr/struct.DVR.html
 //! [theorem]: theorem/struct.Theorem.html
-#[cfg(test)]
-extern crate bincode;
-#[cfg(feature = "use-serde")]
-extern crate serde;
 
-pub mod dvr;
+#[cfg(feature = "serialization")]
+extern crate nom;
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
+#[cfg(feature = "serialization")]
+pub mod database;
+mod dvr;
 pub mod error;
 pub mod expression;
+#[cfg(feature = "serialization")]
 pub mod formatter;
-pub mod statement;
-pub mod theorem;
-pub mod types;
+mod statement;
+mod theorem;
+mod types;
+
+pub use dvr::*;
+pub use expression::Expression;
+pub use statement::*;
+pub use theorem::*;
+pub use types::*;

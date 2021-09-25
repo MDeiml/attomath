@@ -1,10 +1,7 @@
 use crate::{error::ProofError, types::*};
-#[cfg(feature = "use-serde")]
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::borrow::{Borrow, BorrowMut};
 
 #[derive(Clone, Eq, PartialOrd, Ord, Debug, Copy)]
-#[cfg_attr(feature = "use-serde", derive(Serialize))]
 pub struct Expression<T: Borrow<[Identifier]>> {
     data: T,
 }
@@ -12,16 +9,6 @@ pub struct Expression<T: Borrow<[Identifier]>> {
 impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialEq<Expression<S>> for Expression<T> {
     fn eq(&self, other: &Expression<S>) -> bool {
         self.data.borrow() == other.data.borrow()
-    }
-}
-
-#[cfg(feature = "use-serde")]
-impl<'de, T: Borrow<[Identifier]> + std::fmt::Debug + From<Vec<Identifier>> + Deserialize<'de>>
-    Deserialize<'de> for Expression<T>
-{
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let data: Vec<_> = Deserialize::deserialize(deserializer)?;
-        Expression::from_raw(From::from(data)).ok_or(D::Error::custom("data not well formated"))
     }
 }
 
@@ -61,6 +48,35 @@ impl<T: BorrowMut<[Identifier]>> Expression<T> {
 }
 
 impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
+    pub fn is_variable_substitution(
+        &self,
+        other: &Self,
+        var_map: &mut Vec<Option<Identifier>>,
+    ) -> bool {
+        if self.data.borrow().len() != other.data.borrow().len() {
+            return false;
+        }
+        for (symb0, symb1) in self.data.borrow().iter().zip(other.data.borrow().iter()) {
+            if is_operator(*symb0) {
+                if symb0 != symb1 {
+                    return false;
+                }
+            } else {
+                if is_operator(*symb1) {
+                    return false;
+                }
+                if let Some(var) = var_map[*symb0 as usize] {
+                    if var != *symb1 {
+                        return false;
+                    }
+                } else {
+                    var_map[*symb0 as usize] = Some(*symb1);
+                }
+            }
+        }
+        true
+    }
+
     pub fn data<'a>(&'a self) -> &'a T {
         &self.data
     }
@@ -103,7 +119,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     pub fn subexpression<'a>(&'a self, start_index: usize) -> Expression<&'a [Identifier]> {
         Self::subexpression_check(&self.data, start_index).expect(
             format!(
-                "Somehow a invalid expression was formed: {:?}",
+                "Somehow an invalid expression was formed: {:?}",
                 self.borrow()
             )
             .as_str(),
@@ -310,14 +326,14 @@ impl ShiftSubstitution {
 }
 
 impl Substitution for ShiftSubstitution {
-    type T = Box<[Identifier]>;
+    type T = [Identifier; 1];
 
-    fn substitution_opt(&self, id: Identifier) -> Option<Expression<Box<[Identifier]>>> {
+    fn substitution_opt(&self, id: Identifier) -> Option<Expression<[Identifier; 1]>> {
         if id < 0 {
             panic!("id is not a variable");
         }
         Some(Expression {
-            data: vec![id + self.shift as Identifier].into_boxed_slice(),
+            data: [id + self.shift as Identifier],
         })
     }
 }
@@ -365,6 +381,30 @@ impl<'a> Substitution for WholeSubstitution<'a> {
     }
 }
 
+/// A single variable [`Substitution`](trait.Substitution.html)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingleSubstitution(Identifier, Identifier);
+
+impl SingleSubstitution {
+    /// Creates a substitution with the capacity to store replacements for variables `0` to
+    /// `n - 1`.
+    pub fn new(a: Identifier, b: Identifier) -> Self {
+        SingleSubstitution(a, b)
+    }
+}
+
+impl Substitution for SingleSubstitution {
+    type T = [Identifier; 1];
+
+    fn substitution_opt(&self, id: Identifier) -> Option<Expression<[Identifier; 1]>> {
+        if id == self.0 {
+            Some(Expression { data: [self.1] })
+        } else {
+            None
+        }
+    }
+}
+
 /// A `Substitution` maps variable ids to expressions (represented by a sequence of identifiers).
 ///
 /// This is intented to be used together with [`Expression`s](struct.Expression.html).
@@ -388,4 +428,38 @@ pub trait Substitution {
     /// assert_eq!(sub.substitution_opt(1), None);
     /// ```
     fn substitution_opt(&self, id: Identifier) -> Option<Expression<Self::T>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::Wrapping;
+
+    use quickcheck::Arbitrary;
+
+    use super::*;
+
+    impl Arbitrary for Expression<Box<[Identifier]>> {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            loop {
+                let data = Vec::<Identifier>::arbitrary(g).into_boxed_slice();
+                if let Some(subexpression) = Expression::subexpression_check(&data, 0) {
+                    return Expression {
+                        data: subexpression.data.to_owned().into_boxed_slice(),
+                    };
+                }
+            }
+        }
+    }
+
+    quickcheck! {
+        fn unify_substitute(a: Expression<Box<[Identifier]>>, b: Expression<Box<[Identifier]>>) -> bool {
+            let max_var = b.variables().max().unwrap_or(-1);
+            let mut substitution =
+                WholeSubstitution::with_capacity((Wrapping(max_var as usize) + Wrapping(1)).0);
+            match a.unify(&b, &mut substitution) {
+                Ok(()) => b.substitute(&substitution) == a,
+                Err(_) => true
+            }
+        }
+    }
 }

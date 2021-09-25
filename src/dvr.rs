@@ -3,35 +3,6 @@ use crate::{
     expression::{is_operator, Substitution},
     types::*,
 };
-#[cfg(feature = "use-serde")]
-use serde::{Deserialize, Serialize};
-
-pub struct Iter {
-    a: Vec<Identifier>,
-    b: Vec<Identifier>,
-    index: usize,
-}
-
-impl Iterator for Iter {
-    type Item = Result<DVR, ProofError>;
-
-    fn next(&mut self) -> Option<Result<DVR, ProofError>> {
-        if self.index >= self.a.len() * self.b.len() {
-            return None;
-        }
-        let res = DVR::new(
-            self.a[self.index % self.a.len()],
-            self.b[self.index / self.a.len()],
-        );
-        self.index += 1;
-        Some(res)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let rem = self.a.len() * self.b.len() - self.index;
-        (rem, Some(rem))
-    }
-}
 
 /// A _distince variable relation_ for expressing that two variables must be different.
 ///
@@ -39,7 +10,6 @@ impl Iterator for Iter {
 /// a variable with a different subexpression. This leads to logical errors in statements like
 /// `forall x0. exists x1. x0 != x1`.
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
-#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct DVR(Identifier, Identifier);
 
 impl DVR {
@@ -56,7 +26,7 @@ impl DVR {
     ///
     /// # Example
     /// ```
-    /// use attomath::dvr::DVR;
+    /// use attomath::DVR;
     /// use attomath::error::ProofError;
     ///
     /// let dvr = DVR::new(0, 1);
@@ -88,7 +58,7 @@ impl DVR {
     ///
     /// # Example
     /// ```
-    /// use attomath::dvr::DVR;
+    /// use attomath::DVR;
     /// use attomath::expression::{Expression, WholeSubstitution};
     /// use attomath::error::ProofError;
     ///
@@ -122,7 +92,10 @@ impl DVR {
     ///
     /// assert_eq!(new_dvrs, Err(ProofError::DVRError(1)));
     /// ```
-    pub fn substitute<S: Substitution>(&self, substitution: &S) -> Iter {
+    pub fn substitute<S: Substitution>(
+        &self,
+        substitution: &S,
+    ) -> impl Iterator<Item = Result<DVR, ProofError>> {
         let DVR(a, b) = self;
         let vars_a = if let Some(sub) = substitution.substitution_opt(*a) {
             let mut res = sub.variables().collect::<Vec<_>>();
@@ -140,6 +113,32 @@ impl DVR {
         } else {
             vec![*b]
         };
+        struct Iter {
+            a: Vec<Identifier>,
+            b: Vec<Identifier>,
+            index: usize,
+        }
+
+        impl Iterator for Iter {
+            type Item = Result<DVR, ProofError>;
+
+            fn next(&mut self) -> Option<Result<DVR, ProofError>> {
+                if self.index >= self.a.len() * self.b.len() {
+                    return None;
+                }
+                let res = DVR::new(
+                    self.a[self.index % self.a.len()],
+                    self.b[self.index / self.a.len()],
+                );
+                self.index += 1;
+                Some(res)
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                let rem = self.a.len() * self.b.len() - self.index;
+                (rem, Some(rem))
+            }
+        }
         Iter {
             a: vars_a,
             b: vars_b,
@@ -152,7 +151,7 @@ impl DVR {
     ///
     /// # Example
     /// ```
-    /// use attomath::dvr::DVR;
+    /// use attomath::DVR;
     ///
     /// let mut dvr = DVR::new(0, 2).unwrap();
     /// let mut var_map = vec![None; 6];
@@ -185,5 +184,10 @@ impl DVR {
             *a = *b;
             *b = temp;
         }
+    }
+
+    pub fn is_variable_substitution(&self, other: &Self, var_map: &[Option<Identifier>]) -> bool {
+        let DVR(a, b) = self;
+        other == &DVR::new(var_map[*a as usize].unwrap(), var_map[*b as usize].unwrap()).unwrap()
     }
 }

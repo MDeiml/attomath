@@ -1,3 +1,5 @@
+use std::num::Wrapping;
+
 use crate::{
     dvr::DVR,
     error::ProofError,
@@ -7,8 +9,6 @@ use crate::{
     statement::OwnedStatement,
     types::*,
 };
-#[cfg(feature = "use-serde")]
-use serde::{Deserialize, Serialize};
 
 /// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or __assumptions__
 /// and a __conclusion__
@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 /// [`standardize`](#method.standardize)) provided that only valid theorems (or axioms) are
 /// constructed using [`new`](#method.new).
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
-#[cfg_attr(feature = "use-serde", derive(Serialize, Deserialize))]
 pub struct Theorem {
     conclusion: OwnedStatement,
     assumptions: Vec<OwnedStatement>,
@@ -66,7 +65,7 @@ impl Theorem {
     /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize))
     pub fn standardize(&mut self) {
         let max_var = self.max_var();
-        let mut var_map = vec![None; max_var as usize + 1];
+        let mut var_map = vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0];
         let mut next_var = 0;
         self.conclusion
             .expression
@@ -81,6 +80,84 @@ impl Theorem {
         self.assumptions.dedup();
         self.dvrs.sort();
         self.dvrs.dedup();
+    }
+
+    pub fn is_variable_substitution(&self, other: &Self) -> bool {
+        let max_var = self.max_var();
+        let mut var_map = vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0];
+        if self.assumptions.len() != other.assumptions.len()
+            || self.dvrs.len() != other.dvrs.len()
+            || self.conclusion.judgement != other.conclusion.judgement
+        {
+            return false;
+        }
+        if !self
+            .conclusion
+            .expression
+            .is_variable_substitution(&other.conclusion.expression, &mut var_map)
+        {
+            return false;
+        }
+
+        if !self.assumptions.is_empty() {
+            let mut perm = Permutations::new(self.assumptions.len());
+            let mut success = false;
+            while let Some(p) = perm.next() {
+                let mut inner_success = true;
+                let mut var_map_temp = var_map.clone();
+                for i in 0..self.assumptions.len() {
+                    if !self.assumptions[i].expression.is_variable_substitution(
+                        &other.assumptions[p[i]].expression,
+                        &mut var_map_temp,
+                    ) || self.assumptions[i].judgement != other.assumptions[p[i]].judgement
+                    {
+                        inner_success = false;
+                        break;
+                    }
+                }
+                if inner_success {
+                    'outer: for i in 0..var_map.len() {
+                        for j in 0..i {
+                            if var_map_temp[i].is_some() && var_map_temp[i] == var_map_temp[j] {
+                                inner_success = false;
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+                if inner_success {
+                    success = true;
+                    var_map = var_map_temp;
+                    break;
+                }
+            }
+            if !success {
+                return false;
+            }
+        }
+
+        if !self.dvrs.is_empty() {
+            let mut perm = Permutations::new(self.dvrs.len());
+            let mut success = false;
+            while let Some(p) = perm.next() {
+                let mut inner_success = true;
+                for i in 0..self.dvrs.len() {
+                    if !self.dvrs[i].is_variable_substitution(&other.dvrs[p[i]], &var_map) {
+                        inner_success = false;
+                        break;
+                    }
+                }
+                if inner_success {
+                    success = true;
+                    break;
+                }
+            }
+            if !success {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
@@ -105,6 +182,9 @@ impl Theorem {
     /// new theorem. (see
     /// [`Statement::substitute`](../statement/struct.Statement.html#method.substitute) and
     /// [`DVR::substitute`](../dvr/struct.DVR.html#method.substitute))
+    ///
+    /// This function and the functions it calls are the only ones, that need to be trusted to be
+    /// sure, that only provable theorems can be proven.
     ///
     /// # Errors
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
@@ -161,7 +241,8 @@ impl Theorem {
     ///
     pub fn combine(&self, other: &Theorem, index: usize) -> Result<Self, ProofError> {
         let max_var = self.max_var();
-        let mut substitution = WholeSubstitution::with_capacity(max_var as usize + 1);
+        let mut substitution =
+            WholeSubstitution::with_capacity((Wrapping(max_var as usize) + Wrapping(1)).0);
         other
             .conclusion
             .unify(&self.assumptions[index], &mut substitution)?;
@@ -180,31 +261,65 @@ impl Theorem {
     }
 }
 
+struct Permutations {
+    length: usize,
+    counters: Vec<usize>,
+    depth: usize,
+    next: Vec<usize>,
+}
+
+impl Permutations {
+    fn new(length: usize) -> Self {
+        Permutations {
+            length,
+            counters: vec![0; length],
+            depth: 0,
+            next: (0..length).collect(),
+        }
+    }
+
+    fn next(&mut self) -> Option<&[usize]> {
+        if self.depth >= self.length {
+            return None;
+        }
+        if self.depth != 0 {
+            while self.counters[self.depth] >= self.depth {
+                self.counters[self.depth] = 0;
+                self.depth += 1;
+                if self.depth >= self.length {
+                    return None;
+                }
+            }
+            if self.depth % 2 == 0 {
+                let temp = self.next[0];
+                self.next[0] = self.next[self.depth];
+                self.next[self.depth] = temp;
+            } else {
+                let temp = self.next[self.counters[self.depth]];
+                self.next[self.counters[self.depth]] = self.next[self.depth];
+                self.next[self.depth] = temp;
+            }
+            self.counters[self.depth] += 1;
+            self.depth = 1;
+            Some(&self.next)
+        } else {
+            self.depth = 1;
+            Some(&self.next)
+        }
+    }
+}
+
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]
-    fn serde() {
-        use crate::{expression::Expression, statement::Statement};
-
-        let conclusion = Statement {
-            judgement: 0,
-            expression: Expression::from_raw(vec![1].into_boxed_slice()).unwrap(),
-        };
-        let assumptions = vec![
-            Statement {
-                judgement: 0,
-                expression: Expression::from_raw(vec![0].into_boxed_slice()).unwrap(),
-            },
-            Statement {
-                judgement: 0,
-                expression: Expression::from_raw(vec![-2, 0, 1].into_boxed_slice()).unwrap(),
-            },
-        ];
-        let theorem = Theorem::new(conclusion, assumptions, vec![]);
-        let enc = bincode::serialize(&theorem).unwrap();
-        let dec = bincode::deserialize::<Theorem>(&enc).unwrap();
-        assert_eq!(dec, theorem);
+    fn permutations() {
+        let mut perm = Permutations::new(4);
+        let mut counter = 0;
+        while let Some(_) = perm.next() {
+            counter += 1;
+        }
+        assert_eq!(counter, 24);
     }
 }
