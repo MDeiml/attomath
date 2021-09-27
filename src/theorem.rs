@@ -63,18 +63,29 @@ impl Theorem {
     /// Turns this theorem into its standard representation, numbering variables in the order of
     /// their apperance and sorting the assumptions and dvrs (see
     /// [`Expression::standardize`](../expression/struct.Expression.html#method.standardize) and
-    /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize))
+    /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize)).
+    ///
+    /// It holds, that applying standardize twice is the same as applying it once. Two theorems are
+    /// logically "equal", that is they can be constructed from each other by reordering
+    /// assumptions and substituting variables by mutally distinct variables, if and only if they
+    /// are the same after calling standardize on them.
     pub fn standardize(&mut self) {
         let max_var = self.max_var();
         let mut var_map = vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0];
         let mut next_var = 0;
+
+        // first number the variables of the conclusion in order
         self.conclusion
             .expression
             .standardize(&mut var_map, &mut next_var);
 
+        // remove duplicate assumptions
+        // TODO: maybe move this into combine / simplify
         self.assumptions.sort_unstable();
         self.assumptions.dedup();
 
+        // calculate a "normalized" version for each assumption. That is, number each single
+        // theorems variables in order
         let mut indexed_assumptions = self
             .assumptions
             .iter()
@@ -94,14 +105,26 @@ impl Theorem {
                 normalized
             })
             .collect::<Vec<_>>();
+        // sort the assumptions by their normalized version. Assumptions with the same
+        // normalization are now grouped together
         indexed_assumptions.sort_unstable_by_key(|(_, index)| &normalized_assumptions[*index]);
 
+        // The rest of this function is to find for each group of the same normalization the
+        // variable substitution (some variables could be fixed by previous groups) that results
+        // in the smallest lexicographic ordering of the group after its elements are sorted
+
+        // first standardize all assumptions in their new order, so for each group the "free"
+        // variables are going to be substituted by some permutation of themselves
         let mut temp_next_var = next_var;
         for (assumption, _) in indexed_assumptions.iter_mut() {
             assumption
                 .expression
                 .standardize(&mut var_map, &mut temp_next_var);
         }
+
+        // we have to forget the variable map we just computed, but not the variables that are also
+        // part of the conclusion. But these are now numbered 0 .. next_var and do not have to be
+        // changed any longer.
         for (i, v) in var_map.iter_mut().enumerate() {
             *v = if i < next_var as usize {
                 Some(i as Identifier)
@@ -109,6 +132,8 @@ impl Theorem {
                 None
             };
         }
+        // var_maps holds the current candidates for the variable substitution that results in the
+        // lowest lexicographic ordering
         let mut var_maps = vec![var_map];
 
         for assumptions in indexed_assumptions
@@ -117,6 +142,9 @@ impl Theorem {
             let mut next_var1 = 0;
             let mut assumptions_min: Option<Vec<(OwnedStatement, usize)>> = None;
 
+            // for each new group and each candidate in var_maps try all permutation of "new"
+            // variables, i.e. variables that have are not yet determined in the candidates.
+            // Save the best permutations in var_maps1 as the new candidates for the next iteration
             let mut var_maps1 = Vec::new();
             for var_map in var_maps.iter_mut() {
                 let mut perm = assumptions.iter().cloned().collect::<Vec<_>>();
@@ -159,13 +187,17 @@ impl Theorem {
             }
             var_maps = var_maps1;
             next_var = next_var1;
+            // save the minimal substitution in indexed_assumptions. This way we do not have to
+            // substitute again with some candidate (*)
             assumptions.swap_with_slice(assumptions_min.unwrap().as_mut_slice());
         }
 
-        // var_maps are all equal. Just take the first one
+        // just use the saved assumptions (*) this is equivalent to every substitution candidate
         self.assumptions
             .extend(indexed_assumptions.into_iter().map(|(a, _)| a));
 
+        // every variable in a DVR has to appear in some assumption or the conclusion. Just order
+        // the DVRs accordingly.
         for dvr in self.dvrs.iter_mut() {
             *dvr = dvr
                 .substitute(&VariableSubstitution::new(var_maps[0].as_slice()))
