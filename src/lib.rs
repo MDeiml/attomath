@@ -1,3 +1,4 @@
+#![feature(slice_group_by)]
 //! `attomath` is a system for formalizing and proving mathematical theorems heavily inspired by
 //! [Metamath](http://us.metamath.org/mm.html). `attomath` aims to be as small as possible while
 //! still being able to describe any axiomatic system.

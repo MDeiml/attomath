@@ -1,7 +1,11 @@
 use crate::{error::ProofError, types::*};
-use std::borrow::{Borrow, BorrowMut};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    cmp::Ordering,
+    ops::RangeBounds,
+};
 
-#[derive(Clone, Eq, PartialOrd, Ord, Debug, Copy)]
+#[derive(Clone, Eq, Ord, Debug, Copy)]
 pub struct Expression<T: Borrow<[Identifier]>> {
     data: T,
 }
@@ -9,6 +13,19 @@ pub struct Expression<T: Borrow<[Identifier]>> {
 impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialEq<Expression<S>> for Expression<T> {
     fn eq(&self, other: &Expression<S>) -> bool {
         self.data.borrow() == other.data.borrow()
+    }
+}
+
+impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialOrd<Expression<S>> for Expression<T> {
+    fn partial_cmp(&self, other: &Expression<S>) -> Option<Ordering> {
+        // code is safe, because i16 and u16 have the same memory layout
+        unsafe {
+            let a: &[i16] = self.data.borrow();
+            let a_transmuted: &[u16] = std::mem::transmute(a);
+            let b: &[i16] = other.data.borrow();
+            let b_transmuted: &[u16] = std::mem::transmute(b);
+            a_transmuted.partial_cmp(b_transmuted)
+        }
     }
 }
 
@@ -29,54 +46,43 @@ impl<T: BorrowMut<[Identifier]>> Expression<T> {
     /// assert_eq!(var_map, vec![Some(5), None, Some(3), None, None, None]);
     /// assert_eq!(next_var, 6);
     /// ```
-    pub fn standardize(
+    pub fn standardize(&mut self, var_map: &mut [Option<Identifier>], next_var: &mut Identifier) {
+        self.standardize_range(var_map, next_var, ..);
+    }
+
+    pub(crate) fn standardize_range<R: RangeBounds<Identifier>>(
         &mut self,
-        var_map: &mut Vec<Option<Identifier>>,
+        var_map: &mut [Option<Identifier>],
         next_var: &mut Identifier,
+        range: R,
     ) {
         for symb in self.data.borrow_mut().iter_mut() {
-            if !is_operator(*symb) {
-                *symb = var_map[*symb as usize].unwrap_or_else(|| {
+            if !is_operator(*symb) && range.contains(symb) {
+                let var = var_map[*symb as usize].unwrap_or_else(|| {
                     let var = *next_var;
                     var_map[*symb as usize] = Some(var);
                     *next_var += 1;
                     var
                 });
+                if range.contains(&var) {
+                    *symb = var;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn substitute_variables(&mut self, var_map: &[Option<Identifier>]) {
+        for symb in self.data.borrow_mut().iter_mut() {
+            if !is_operator(*symb) {
+                if let Some(sub) = var_map[*symb as usize] {
+                    *symb = sub;
+                }
             }
         }
     }
 }
 
 impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
-    pub fn is_variable_substitution(
-        &self,
-        other: &Self,
-        var_map: &mut Vec<Option<Identifier>>,
-    ) -> bool {
-        if self.data.borrow().len() != other.data.borrow().len() {
-            return false;
-        }
-        for (symb0, symb1) in self.data.borrow().iter().zip(other.data.borrow().iter()) {
-            if is_operator(*symb0) {
-                if symb0 != symb1 {
-                    return false;
-                }
-            } else {
-                if is_operator(*symb1) {
-                    return false;
-                }
-                if let Some(var) = var_map[*symb0 as usize] {
-                    if var != *symb1 {
-                        return false;
-                    }
-                } else {
-                    var_map[*symb0 as usize] = Some(*symb1);
-                }
-            }
-        }
-        true
-    }
-
     pub fn data<'a>(&'a self) -> &'a T {
         &self.data
     }
@@ -245,7 +251,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     ) -> Option<Expression<&'a [Identifier]>> {
         let mut depth = 1;
         for (i, &s) in expr.borrow()[start_index..].iter().enumerate() {
-            if is_operator(s) && s != -1 {
+            if is_operator(s) && s != Identifier::MIN {
                 depth += 1;
             } else {
                 depth -= 1;
@@ -264,10 +270,10 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
 ///
 /// # Example
 /// ```
-/// use attomath::expression::is_operator;
+/// use attomath::{expression::is_operator, Identifier};
 ///
 /// assert!(is_operator(-2));
-/// assert!(is_operator(-1));
+/// assert!(is_operator(Identifier::MIN));
 /// assert!(!is_operator(0));
 /// ```
 pub fn is_operator(x: Identifier) -> bool {
@@ -402,6 +408,27 @@ impl Substitution for SingleSubstitution {
         } else {
             None
         }
+    }
+}
+
+/// A complete variable [`Substitution`](trait.Substitution.html)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableSubstitution<T: Borrow<[Option<Identifier>]>>(T);
+
+impl<T: Borrow<[Option<Identifier>]>> VariableSubstitution<T> {
+    /// Creates a substitution with the capacity to store replacements for variables `0` to
+    /// `n - 1`.
+    pub fn new(variables: T) -> Self {
+        VariableSubstitution(variables)
+    }
+}
+
+impl<S: Borrow<[Option<Identifier>]>> Substitution for VariableSubstitution<S> {
+    type T = [Identifier; 1];
+
+    fn substitution_opt(&self, id: Identifier) -> Option<Expression<[Identifier; 1]>> {
+        // TODO: Check variable is variable
+        self.0.borrow()[id as usize].map(|v| Expression { data: [v] })
     }
 }
 

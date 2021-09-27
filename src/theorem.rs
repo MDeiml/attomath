@@ -1,10 +1,11 @@
-use std::num::Wrapping;
+use std::{cmp::Ordering, num::Wrapping};
 
 use crate::{
     dvr::DVR,
     error::ProofError,
     expression::{
-        is_operator, ChainSubstitution, ShiftSubstitution, Substitution, WholeSubstitution,
+        is_operator, ChainSubstitution, ShiftSubstitution, Substitution, VariableSubstitution,
+        WholeSubstitution,
     },
     statement::OwnedStatement,
     types::*,
@@ -70,94 +71,111 @@ impl Theorem {
         self.conclusion
             .expression
             .standardize(&mut var_map, &mut next_var);
-        for a in self.assumptions.iter_mut() {
-            a.expression.standardize(&mut var_map, &mut next_var);
-        }
-        for dvr in self.dvrs.iter_mut() {
-            dvr.standardize(&mut var_map, &mut next_var);
-        }
-        self.assumptions.sort();
+
+        self.assumptions.sort_unstable();
         self.assumptions.dedup();
-        self.dvrs.sort();
-        self.dvrs.dedup();
-    }
 
-    pub fn is_variable_substitution(&self, other: &Self) -> bool {
-        let max_var = self.max_var();
-        let mut var_map = vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0];
-        if self.assumptions.len() != other.assumptions.len()
-            || self.dvrs.len() != other.dvrs.len()
-            || self.conclusion.judgement != other.conclusion.judgement
-        {
-            return false;
-        }
-        if !self
-            .conclusion
-            .expression
-            .is_variable_substitution(&other.conclusion.expression, &mut var_map)
-        {
-            return false;
-        }
+        let mut indexed_assumptions = self
+            .assumptions
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(a, b)| (b, a))
+            .collect::<Vec<_>>();
+        let normalized_assumptions = self
+            .assumptions
+            .drain(..)
+            .map(|assumption| {
+                let mut normalized = assumption;
+                normalized.expression.standardize(
+                    &mut vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0],
+                    &mut 0,
+                );
+                normalized
+            })
+            .collect::<Vec<_>>();
+        indexed_assumptions.sort_unstable_by_key(|(_, index)| &normalized_assumptions[*index]);
 
-        if !self.assumptions.is_empty() {
-            let mut perm = Permutations::new(self.assumptions.len());
-            let mut success = false;
-            while let Some(p) = perm.next() {
-                let mut inner_success = true;
-                let mut var_map_temp = var_map.clone();
-                for i in 0..self.assumptions.len() {
-                    if !self.assumptions[i].expression.is_variable_substitution(
-                        &other.assumptions[p[i]].expression,
-                        &mut var_map_temp,
-                    ) || self.assumptions[i].judgement != other.assumptions[p[i]].judgement
+        let mut temp_next_var = next_var;
+        for (assumption, _) in indexed_assumptions.iter_mut() {
+            assumption
+                .expression
+                .standardize(&mut var_map, &mut temp_next_var);
+        }
+        for (i, v) in var_map.iter_mut().enumerate() {
+            *v = if i < next_var as usize {
+                Some(i as Identifier)
+            } else {
+                None
+            };
+        }
+        let mut var_maps = vec![var_map];
+
+        for assumptions in indexed_assumptions
+            .group_by_mut(|(_, i), (_, j)| normalized_assumptions[*i] == normalized_assumptions[*j])
+        {
+            let mut next_var1 = 0;
+            let mut assumptions_min: Option<Vec<(OwnedStatement, usize)>> = None;
+
+            let mut var_maps1 = Vec::new();
+            for var_map in var_maps.iter_mut() {
+                let mut perm = assumptions.iter().cloned().collect::<Vec<_>>();
+                for (assumption, _) in perm.iter_mut() {
+                    assumption.expression.substitute_variables(&var_map);
+                }
+                let mut perm = Permutations::new(&mut perm);
+                while let Some(permutation) = perm.next() {
+                    let mut var_map1 = var_map.clone();
+                    next_var1 = next_var;
+
+                    for (assumption, _) in permutation.iter_mut() {
+                        assumption.expression.standardize_range(
+                            &mut var_map1,
+                            &mut next_var1,
+                            next_var..,
+                        );
+                    }
+                    match assumptions_min
+                        .as_deref_mut()
+                        .map(|a_min| {
+                            permutation
+                                .iter()
+                                .map(|(a, _)| a)
+                                .cmp(a_min.iter().map(|(a, _)| a))
+                        })
+                        .unwrap_or(Ordering::Less)
                     {
-                        inner_success = false;
-                        break;
-                    }
-                }
-                if inner_success {
-                    'outer: for i in 0..var_map.len() {
-                        for j in 0..i {
-                            if var_map_temp[i].is_some() && var_map_temp[i] == var_map_temp[j] {
-                                inner_success = false;
-                                break 'outer;
-                            }
+                        Ordering::Equal => {
+                            var_maps1.push(var_map1);
                         }
+                        Ordering::Less => {
+                            var_maps1.clear();
+                            var_maps1.push(var_map1);
+                            assumptions_min = Some(permutation.iter().cloned().collect());
+                        }
+                        Ordering::Greater => {}
                     }
                 }
-                if inner_success {
-                    success = true;
-                    var_map = var_map_temp;
-                    break;
-                }
             }
-            if !success {
-                return false;
-            }
+            var_maps = var_maps1;
+            next_var = next_var1;
+            assumptions.swap_with_slice(assumptions_min.unwrap().as_mut_slice());
         }
 
-        if !self.dvrs.is_empty() {
-            let mut perm = Permutations::new(self.dvrs.len());
-            let mut success = false;
-            while let Some(p) = perm.next() {
-                let mut inner_success = true;
-                for i in 0..self.dvrs.len() {
-                    if !self.dvrs[i].is_variable_substitution(&other.dvrs[p[i]], &var_map) {
-                        inner_success = false;
-                        break;
-                    }
-                }
-                if inner_success {
-                    success = true;
-                    break;
-                }
-            }
-            if !success {
-                return false;
-            }
+        // var_maps are all equal. Just take the first one
+        self.assumptions
+            .extend(indexed_assumptions.into_iter().map(|(a, _)| a));
+
+        for dvr in self.dvrs.iter_mut() {
+            *dvr = dvr
+                .substitute(&VariableSubstitution::new(var_maps[0].as_slice()))
+                .next()
+                .unwrap()
+                .unwrap();
         }
 
-        true
+        self.dvrs.sort_unstable();
+        self.dvrs.dedup();
     }
 
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
@@ -261,50 +279,45 @@ impl Theorem {
     }
 }
 
-struct Permutations {
-    length: usize,
+struct Permutations<'a, T> {
+    sequence: &'a mut [T],
     counters: Vec<usize>,
     depth: usize,
-    next: Vec<usize>,
 }
 
-impl Permutations {
-    fn new(length: usize) -> Self {
+impl<'a, T> Permutations<'a, T> {
+    fn new(sequence: &'a mut [T]) -> Self {
+        let length = sequence.len();
         Permutations {
-            length,
+            sequence,
             counters: vec![0; length],
             depth: 0,
-            next: (0..length).collect(),
         }
     }
 
-    fn next(&mut self) -> Option<&[usize]> {
-        if self.depth >= self.length {
+    fn next(&mut self) -> Option<&mut [T]> {
+        if self.depth >= self.sequence.len() {
             return None;
         }
         if self.depth != 0 {
             while self.counters[self.depth] >= self.depth {
                 self.counters[self.depth] = 0;
                 self.depth += 1;
-                if self.depth >= self.length {
+                if self.depth >= self.sequence.len() {
                     return None;
                 }
             }
             if self.depth % 2 == 0 {
-                let temp = self.next[0];
-                self.next[0] = self.next[self.depth];
-                self.next[self.depth] = temp;
+                self.sequence.swap(0, self.depth);
             } else {
-                let temp = self.next[self.counters[self.depth]];
-                self.next[self.counters[self.depth]] = self.next[self.depth];
-                self.next[self.depth] = temp;
+                self.sequence.swap(self.counters[self.depth], self.depth);
             }
             self.counters[self.depth] += 1;
             self.depth = 1;
-            Some(&self.next)
+            Some(&mut self.sequence)
         } else {
             self.depth = 1;
-            Some(&self.next)
+            Some(&mut self.sequence)
         }
     }
 }
@@ -315,7 +328,8 @@ mod tests {
 
     #[test]
     fn permutations() {
-        let mut perm = Permutations::new(4);
+        let mut arr = [0, 1, 2, 3];
+        let mut perm = Permutations::new(&mut arr);
         let mut counter = 0;
         while let Some(_) = perm.next() {
             counter += 1;

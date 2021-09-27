@@ -150,7 +150,9 @@ impl Database {
             .last_mut()
             .ok_or(DatabaseError::TheoremNotFound(None, None))?
             .0;
-        if last.is_variable_substitution(&theorem) {
+        let mut theorem_standardized = theorem.clone();
+        theorem_standardized.standardize();
+        if last == &theorem_standardized {
             *last = theorem;
             Ok(())
         } else {
@@ -457,15 +459,24 @@ mod tests {
 
         let a = Statement {
             judgement: 0,
-            expression: Expression::from_raw(vec![-2, -1, -1].into_boxed_slice()).unwrap(),
+            expression: Expression::from_raw(
+                vec![-2, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+            )
+            .unwrap(),
         };
         let b = Statement {
             judgement: 0,
-            expression: Expression::from_raw(vec![-3, -1, -1].into_boxed_slice()).unwrap(),
+            expression: Expression::from_raw(
+                vec![-3, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+            )
+            .unwrap(),
         };
         let c = Statement {
             judgement: 0,
-            expression: Expression::from_raw(vec![-4, -1, -1].into_boxed_slice()).unwrap(),
+            expression: Expression::from_raw(
+                vec![-4, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+            )
+            .unwrap(),
         };
 
         database
@@ -542,13 +553,13 @@ combine $(3) <- wi
 combine $(1) <- wi
 combine $(1) <- wi
 combine $(3) <- wi
-combine $(8) <- ax-2 { wff x0, wff x1, wff x2, |- (x0 -> (x1 -> x2)) => |- ((x0 -> x1) -> (x0 -> x2)) }: a2i
+combine $(9) <- ax-2 { wff x0, wff x1, wff x2, |- (x0 -> (x1 -> x2)) => |- ((x0 -> x1) -> (x0 -> x2)) }: a2i
 combine ax-mp(1) <- wi
 combine $(1) <- wi
-combine $(5) <- a2i { wff x0, wff x1, wff x2, |- (x0 -> x1), |- (x0 -> (x1 -> x2)) => |- (x0 -> x2) }: mpd
+combine $(6) <- a2i { wff x0, wff x1, wff x2, |- (x0 -> x1), |- (x0 -> (x1 -> x2)) => |- (x0 -> x2) }: mpd
 simplify ax-1 (x0 ~ x1)
 combine mpd(2) <- wi
-combine $(6) <- 1
+combine $(5) <- 1
 combine ax-1(2) <- wi
 simplify $ (x0 ~ x1)
 simplify $ (x0 ~ x1)

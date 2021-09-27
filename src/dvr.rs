@@ -145,49 +145,4 @@ impl DVR {
             index: 0,
         }
     }
-
-    /// Turns this dvr into its standard representation, numbering variables in the order of their
-    /// apperance. And sorting this `DVR`s variables;
-    ///
-    /// # Example
-    /// ```
-    /// use attomath::DVR;
-    ///
-    /// let mut dvr = DVR::new(0, 2).unwrap();
-    /// let mut var_map = vec![None; 6];
-    /// var_map[2] = Some(3);
-    /// let mut next_var = 5;
-    /// dvr.standardize(&mut var_map, &mut next_var);
-    /// assert_eq!(dvr, DVR::new(3, 5).unwrap());
-    /// assert_eq!(var_map, vec![Some(5), None, Some(3), None, None, None]);
-    /// assert_eq!(next_var, 6);
-    pub fn standardize(
-        &mut self,
-        var_map: &mut Vec<Option<Identifier>>,
-        next_var: &mut Identifier,
-    ) {
-        let DVR(a, b) = self;
-        *a = var_map[*a as usize].unwrap_or_else(|| {
-            let res = *next_var;
-            *next_var += 1;
-            var_map[*a as usize] = Some(res);
-            res
-        });
-        *b = var_map[*b as usize].unwrap_or_else(|| {
-            let res = *next_var;
-            *next_var += 1;
-            var_map[*b as usize] = Some(res);
-            res
-        });
-        if a > b {
-            let temp = *a;
-            *a = *b;
-            *b = temp;
-        }
-    }
-
-    pub fn is_variable_substitution(&self, other: &Self, var_map: &[Option<Identifier>]) -> bool {
-        let DVR(a, b) = self;
-        other == &DVR::new(var_map[*a as usize].unwrap(), var_map[*b as usize].unwrap()).unwrap()
-    }
 }

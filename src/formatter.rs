@@ -70,7 +70,7 @@ impl Formatter {
         left: &Expression<T>,
         right: &Expression<T>,
     ) {
-        if id == -1 {
+        if id == Identifier::MIN {
             return;
         }
         let (symb, arity) = self.operators[(-id - 2) as usize].clone();
@@ -107,8 +107,11 @@ impl Formatter {
             // TODO: remove unwrap
             Ok((
                 input,
-                Expression::from_raw(vec![-(o as Identifier) - 2, -1, -1].into_boxed_slice())
-                    .unwrap(),
+                Expression::from_raw(
+                    vec![-(o as Identifier) - 2, Identifier::MIN, Identifier::MIN]
+                        .into_boxed_slice(),
+                )
+                .unwrap(),
             ))
         } else if arity == 1 {
             let (input, _) = char('(')(input)?;
@@ -125,7 +128,7 @@ impl Formatter {
             let mut data = Vec::with_capacity(left.data().len() + 2);
             data.push(-(o as Identifier) - 2);
             data.extend_from_slice(left.data());
-            data.push(-1);
+            data.push(Identifier::MIN);
             // TODO: remove unwrap
             Ok((
                 input,
@@ -188,7 +191,7 @@ impl Formatter {
         expression: &Expression<T>,
     ) {
         let id = expression.to_slice().data()[0];
-        if id == -1 {
+        if id == Identifier::MIN {
             return;
         }
         if is_operator(id) {
