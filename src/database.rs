@@ -542,29 +542,29 @@ combine $(1) <- b { |- C }: c
             judgements: vec!["wff".to_owned(), "|-".to_owned()],
         };
 
-        let s = r#"axiom { wff x0 => wff (-. x0) }: wn
-axiom { wff x0, wff x1 => wff (x0 -> x1) }: wi
-axiom { wff x0, wff x1, |- x0, |- (x0 -> x1) => |- x1 }: ax-mp
-axiom { wff x0, wff x1 => |- (x0 -> (x1 -> x0)) }: ax-1
-axiom { wff x0, wff x1, wff x2 => |- ((x0 -> (x1 -> x2)) -> ((x0 -> x1) -> (x0 -> x2))) }: ax-2
-axiom { wff x0, wff x1 => |- (((-. x0) -> (-. x1)) -> (x1 -> x0)) }: ax-3
+        let s = r#"axiom { wff a => wff (-. a) }: wn
+axiom { wff a, wff b => wff (a -> b) }: wi
+axiom { wff a, wff b, |- a, |- (a -> b) => |- b }: ax-mp
+axiom { wff a, wff b => |- (a -> (b -> a)) }: ax-1
+axiom { wff a, wff b, wff c => |- ((a -> (b -> c)) -> ((a -> b) -> (a -> c))) }: ax-2
+axiom { wff a, wff b => |- (((-. a) -> (-. b)) -> (b -> a)) }: ax-3
 combine ax-mp(1) <- wi
 combine $(3) <- wi
 combine $(1) <- wi
 combine $(1) <- wi
 combine $(3) <- wi
-combine $(9) <- ax-2 { wff x0, wff x1, wff x2, |- (x0 -> (x1 -> x2)) => |- ((x0 -> x1) -> (x0 -> x2)) }: a2i
+combine $(9) <- ax-2 { wff a, wff b, wff c, |- (a -> (b -> c)) => |- ((a -> b) -> (a -> c)) }: a2i
 combine ax-mp(1) <- wi
 combine $(1) <- wi
-combine $(6) <- a2i { wff x0, wff x1, wff x2, |- (x0 -> x1), |- (x0 -> (x1 -> x2)) => |- (x0 -> x2) }: mpd
-simplify ax-1 (x0 ~ x1)
+combine $(6) <- a2i { wff a, wff b, wff c, |- (a -> b), |- (a -> (b -> c)) => |- (a -> c) }: mpd
+simplify ax-1 (a ~ b)
 combine mpd(2) <- wi
 combine $(5) <- 1
 combine ax-1(2) <- wi
-simplify $ (x0 ~ x1)
-simplify $ (x0 ~ x1)
-simplify $ (x0 ~ x1)
-combine 3(3) <- $ { wff x0 => |- (x0 -> x0) }: id
+simplify $ (a ~ b)
+simplify $ (a ~ b)
+simplify $ (a ~ b)
+combine 3(3) <- $ { wff a => |- (a -> a) }: id
 "#;
         match Database::parse_database(&fmt, s).unwrap().1 {
             Err(DatabaseError::TheoremMismatch(t1, t2)) => {

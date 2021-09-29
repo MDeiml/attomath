@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag},
-    character::complete::{char, digit1},
+    bytes::complete::{is_not, tag, take_while1},
+    character::complete::char,
     combinator::{eof, map, map_opt, verify},
     error::context,
     multi::separated_list1,
@@ -51,7 +51,7 @@ use std::fmt::Write;
 ///
 /// let mut s = String::new();
 /// fmt.format_theorem(&mut s, &theorem);
-/// assert_eq!(s, "x0 <> x1, |- x0, |- (x0 -> x1) => |- x1");
+/// assert_eq!(s, "a <> b, |- a, |- (a -> b) => |- b");
 ///
 /// let (remaining, theorem1) = fmt.parse_theorem(&s).unwrap();
 /// assert_eq!(remaining, "");
@@ -173,16 +173,42 @@ impl Formatter {
         ))(input)
     }
 
-    pub fn format_variable(&self, s: &mut String, id: Identifier) {
-        write!(s, "x{}", id).unwrap();
+    pub fn format_variable(&self, s: &mut String, mut id: Identifier) {
+        assert!(id >= 0);
+        id += 1;
+        s.extend(
+            std::iter::from_fn(move || {
+                if id == 0 {
+                    None
+                } else if id <= 26 {
+                    let c = ('a' as u8 + (id % 26) as u8 - 1) as char;
+                    id = 0;
+                    Some(c)
+                } else {
+                    let c = ('a' as u8 + (id % 26) as u8) as char;
+                    id /= 26;
+                    Some(c)
+                }
+            })
+            .collect::<Vec<_>>()
+            .into_iter(),
+        );
     }
 
     pub fn parse_variable<'a>(
         &self,
         input: &'a str,
     ) -> IResult<&'a str, Identifier, GreedyError<&'a str>> {
-        let (input, _) = char('x')(input)?;
-        map_opt(digit1, |s: &str| s.parse::<i16>().ok())(input)
+        let (input, var) = take_while1(|c| c >= 'a' && c <= 'z')(input)?;
+        let mut id = 0i16;
+        for c in var.chars() {
+            id *= 26;
+            if id == 0 {
+                id += 1;
+            }
+            id += (c as u8 - 'a' as u8) as i16;
+        }
+        Ok((input, id - 1))
     }
 
     pub fn format_expression<T: Borrow<[Identifier]> + std::fmt::Debug>(
