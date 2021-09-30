@@ -5,9 +5,8 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_till1, take_until},
     character::complete::{char, digit1},
-    combinator::{all_consuming, eof, map, map_opt, map_parser, rest},
+    combinator::{eof, map, map_opt, map_parser, rest},
     error::context,
-    multi::fold_many0,
     sequence::{terminated, tuple},
     IResult,
 };
@@ -33,6 +32,17 @@ pub enum Proof<K> {
     Axiom(Theorem),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    Proof(
+        Proof<(Option<String>, Option<usize>)>,
+        Option<Theorem>,
+        Option<String>,
+    ),
+    Judgement(String),
+    Operator(String, u8),
+}
+
 #[derive(Debug)]
 pub enum DatabaseError {
     /// Error produced when trying to use a nonexistent theorem id (see
@@ -43,11 +53,19 @@ pub enum DatabaseError {
     NameCollision(String),
     TheoremMismatch(Theorem, Theorem),
     ProofError(ProofError),
+    ParseError,
 }
 
 impl From<ProofError> for DatabaseError {
     fn from(e: ProofError) -> Self {
         Self::ProofError(e)
+    }
+}
+
+impl<'a> From<nom::Err<GreedyError<&'a str>>> for DatabaseError {
+    fn from(_error: nom::Err<GreedyError<&'a str>>) -> Self {
+        // TODO
+        Self::ParseError
     }
 }
 
@@ -300,15 +318,7 @@ impl Database {
     fn parse_simplify<'a>(
         fmt: &Formatter,
         input: &'a str,
-    ) -> IResult<
-        &'a str,
-        (
-            Proof<(Option<String>, Option<usize>)>,
-            Option<Theorem>,
-            Option<String>,
-        ),
-        GreedyError<&'a str>,
-    > {
+    ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
         let (input, _) = tag("simplify ")(input)?;
         or_fail(|input| {
             let (input, id) = map_parser(is_not(" "), Self::parse_id)(input)?;
@@ -337,22 +347,17 @@ impl Database {
                     (None, Some(name.to_owned()))
                 }),
             ))(input)?;
-            Ok((input, (Proof::Simplify(id, a, b), theorem, name)))
+            Ok((
+                input,
+                Command::Proof(Proof::Simplify(id, a, b), theorem, name),
+            ))
         })(input)
     }
 
     fn parse_combine<'a>(
         fmt: &Formatter,
         input: &'a str,
-    ) -> IResult<
-        &'a str,
-        (
-            Proof<(Option<String>, Option<usize>)>,
-            Option<Theorem>,
-            Option<String>,
-        ),
-        GreedyError<&'a str>,
-    > {
+    ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
         let (input, _) = tag("combine ")(input)?;
         or_fail(|input| {
             let (input, id_a) = map_parser(is_not("("), Self::parse_id)(input)?;
@@ -384,7 +389,7 @@ impl Database {
             ))(input)?;
             Ok((
                 input,
-                (Proof::Combine(id_a, id_b, index - 1), theorem, name),
+                Command::Proof(Proof::Combine(id_a, id_b, index - 1), theorem, name),
             ))
         })(input)
     }
@@ -392,15 +397,7 @@ impl Database {
     fn parse_axiom<'a>(
         fmt: &Formatter,
         input: &'a str,
-    ) -> IResult<
-        &'a str,
-        (
-            Proof<(Option<String>, Option<usize>)>,
-            Option<Theorem>,
-            Option<String>,
-        ),
-        GreedyError<&'a str>,
-    > {
+    ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
         let (input, _) = tag("axiom { ")(input)?;
         or_fail(|input| {
             let (input, theorem) =
@@ -412,39 +409,69 @@ impl Database {
                     Some(name.to_owned())
                 }),
             ))(input)?;
-            Ok((input, (Proof::Axiom(theorem.clone()), None, name)))
+            Ok((
+                input,
+                Command::Proof(Proof::Axiom(theorem.clone()), None, name),
+            ))
         })(input)
     }
 
+    fn parse_judgement<'a>(input: &'a str) -> IResult<&'a str, Command, GreedyError<&'a str>> {
+        let (input, _) = tag("judgement ")(input)?;
+        let (input, judgement) = rest(input)?;
+        Ok((input, Command::Judgement(judgement.to_owned())))
+    }
+
+    fn parse_operator<'a>(input: &'a str) -> IResult<&'a str, Command, GreedyError<&'a str>> {
+        let (input, _) = tag("operator ")(input)?;
+        let (input, operator) = take_until(" ")(input)?;
+        let (input, _) = char(' ')(input)?;
+        let (input, arity) = map_opt(digit1, |s: &str| s.parse::<u8>().ok())(input)?;
+        Ok((input, Command::Operator(operator.to_owned(), arity)))
+    }
+
     pub fn parse_database<'a>(
-        fmt: &Formatter,
+        fmt: &mut Formatter,
         input: &'a str,
-    ) -> IResult<&'a str, Result<Self, DatabaseError>, GreedyError<&'a str>> {
-        all_consuming(fold_many0(
-            terminated(
-                map_parser(
-                    is_not("\n"),
-                    or_fail(alt((
-                        context("simplify", |input| Self::parse_simplify(&fmt, input)),
-                        context("combine", |input| Self::parse_combine(&fmt, input)),
-                        context("axiom", |input| Self::parse_axiom(&fmt, input)),
-                    ))),
-                ),
-                char('\n'),
-            ),
-            || Ok(Database::new()),
-            |database: Result<Database, DatabaseError>, (proof, theorem, name)| {
-                let mut database = database?;
-                let _theorem1 = database.add_proof(proof)?;
-                if let Some(theorem) = theorem {
-                    database.substitute(theorem)?;
+    ) -> Result<Self, (&'a str, DatabaseError)> {
+        let mut database = Self::new();
+        for line in input.lines() {
+            (|| {
+                let res: Result<_, nom::Err<GreedyError<_>>> = or_fail(alt((
+                    context(
+                        "proof",
+                        alt((
+                            context("simplify", |input| Self::parse_simplify(&fmt, input)),
+                            context("combine", |input| Self::parse_combine(&fmt, input)),
+                            context("axiom", |input| Self::parse_axiom(&fmt, input)),
+                        )),
+                    ),
+                    context("judgement", |input| Self::parse_judgement(input)),
+                    context("operator", |input| Self::parse_operator(input)),
+                )))(line);
+                let (input, command) = res?;
+                if !input.is_empty() {
+                    return Err(DatabaseError::ParseError);
                 }
-                if let Some(name) = name {
-                    database.add_name(name)?;
+
+                match command {
+                    Command::Proof(proof, theorem, name) => {
+                        let _theorem1 = database.add_proof(proof)?;
+                        if let Some(theorem) = theorem {
+                            database.substitute(theorem)?;
+                        }
+                        if let Some(name) = name {
+                            database.add_name(name)?;
+                        }
+                    }
+                    Command::Judgement(judgement) => fmt.add_judgement(judgement),
+                    Command::Operator(operator, arity) => fmt.add_operator(operator, arity),
                 }
-                Ok(database)
-            },
-        ))(input)
+                Ok(())
+            })()
+            .map_err(|e| (line, e))?;
+        }
+        Ok(database)
     }
 }
 
@@ -512,14 +539,11 @@ mod tests {
         let theorem = database.get(Some("c"), None).unwrap();
         assert_eq!(theorem, &Theorem::new(c, vec![], vec![]));
 
-        let fmt = Formatter {
-            operators: vec![
-                ("A".to_owned(), 0),
-                ("B".to_owned(), 0),
-                ("C".to_owned(), 0),
-            ],
-            judgements: vec!["|-".to_owned()],
-        };
+        let mut fmt = Formatter::new();
+        fmt.add_operator("A".to_owned(), 0);
+        fmt.add_operator("B".to_owned(), 0);
+        fmt.add_operator("C".to_owned(), 0);
+        fmt.add_judgement("|-".to_owned());
         let s = database.serialize(&fmt);
         assert_eq!(
             s,
@@ -531,18 +555,17 @@ combine $(1) <- b { |- C }: c
 "#
         );
 
-        let database1 = Database::parse_database(&fmt, &s).unwrap().1.unwrap();
+        let database1 = Database::parse_database(&mut fmt, &s).unwrap();
         assert_eq!(database1, database);
     }
 
     #[test]
     fn id() {
-        let fmt = Formatter {
-            operators: vec![("->".to_owned(), 2), ("-.".to_owned(), 1)],
-            judgements: vec!["wff".to_owned(), "|-".to_owned()],
-        };
-
-        let s = r#"axiom { wff a => wff (-. a) }: wn
+        let s = r#"judgement wff
+judgement |-
+operator -> 2
+operator -. 1
+axiom { wff a => wff (-. a) }: wn
 axiom { wff a, wff b => wff (a -> b) }: wi
 axiom { wff a, wff b, |- a, |- (a -> b) => |- b }: ax-mp
 axiom { wff a, wff b => |- (a -> (b -> a)) }: ax-1
@@ -566,17 +589,24 @@ simplify $ (a ~ b)
 simplify $ (a ~ b)
 combine 3(3) <- $ { wff a => |- (a -> a) }: id
 "#;
-        match Database::parse_database(&fmt, s).unwrap().1 {
-            Err(DatabaseError::TheoremMismatch(t1, t2)) => {
-                let mut s1 = String::new();
-                fmt.format_theorem(&mut s1, &t1);
-                let mut s2 = String::new();
-                fmt.format_theorem(&mut s2, &t2);
-                panic!("TheoremMismatch:\n{}\n{}", s1, s2);
+        let mut fmt = Formatter::new();
+        match Database::parse_database(&mut fmt, s) {
+            Err((line, e)) => {
+                eprintln!("In line:\n\t{}", line);
+                match e {
+                    DatabaseError::TheoremMismatch(t1, t2) => {
+                        let mut s1 = String::new();
+                        fmt.format_theorem(&mut s1, &t1);
+                        let mut s2 = String::new();
+                        fmt.format_theorem(&mut s2, &t2);
+                        panic!("TheoremMismatch:\n{}\n{}", s1, s2);
+                    }
+                    e => {
+                        panic!("{:?}", e);
+                    }
+                }
             }
-            e => {
-                e.unwrap();
-            }
+            _ => (),
         }
     }
 }

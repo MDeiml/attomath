@@ -28,10 +28,10 @@ use std::fmt::Write;
 /// use attomath::Statement;
 /// use attomath::DVR;
 ///
-/// let fmt = Formatter {
-///     operators: vec![("->".to_owned(), 2)],
-///     judgements: vec!["|-".to_owned()]
-/// };
+/// let mut fmt = Formatter::new();
+/// fmt.add_operator("->".to_owned(), 2);
+/// fmt.add_judgement("|-".to_owned());
+///
 /// let conclusion = Statement {
 ///     judgement: 0,
 ///     expression: Expression::from_raw(vec![1].into_boxed_slice()).unwrap()
@@ -58,11 +58,28 @@ use std::fmt::Write;
 /// assert_eq!(theorem1, theorem);
 /// ```
 pub struct Formatter {
-    pub operators: Vec<(String, u8)>,
-    pub judgements: Vec<String>,
+    operators: Vec<(String, u8)>,
+    judgements: Vec<String>,
 }
 
 impl Formatter {
+    pub fn new() -> Self {
+        Formatter {
+            operators: Vec::new(),
+            judgements: Vec::new(),
+        }
+    }
+
+    pub fn add_operator(&mut self, operator: String, arity: u8) {
+        // TODO: verify
+        self.operators.push((operator, arity));
+    }
+
+    pub fn add_judgement(&mut self, judgement: String) {
+        // TODO: verify
+        self.judgements.push(judgement);
+    }
+
     pub fn format_operator<T: Borrow<[Identifier]> + std::fmt::Debug>(
         &self,
         s: &mut String,
