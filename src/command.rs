@@ -58,13 +58,13 @@ impl Command {
             context(
                 "proof",
                 alt((
-                    context("simplify", |input| Self::parse_simplify(&fmt, input)),
-                    context("combine", |input| Self::parse_combine(&fmt, input)),
-                    context("axiom", |input| Self::parse_axiom(&fmt, input)),
+                    context("smp", |input| Self::parse_simplify(&fmt, input)),
+                    context("cmb", |input| Self::parse_combine(&fmt, input)),
+                    context("axm", |input| Self::parse_axiom(&fmt, input)),
                 )),
             ),
-            context("judgement", |input| Self::parse_judgement(input)),
-            context("operator", |input| Self::parse_operator(input)),
+            context("jdg", |input| Self::parse_judgement(input)),
+            context("opr", |input| Self::parse_operator(input)),
         ))))(input)?;
         Ok(command)
     }
@@ -118,7 +118,7 @@ impl Command {
         fmt: &Formatter,
         input: &'a str,
     ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
-        let (input, _) = tag("simplify ")(input)?;
+        let (input, _) = tag("smp ")(input)?;
         or_fail(|input| {
             let (input, id) = map_parser(is_not(" "), Self::parse_id)(input)?;
             let (input, _) = tag(" (")(input)?;
@@ -157,7 +157,7 @@ impl Command {
         fmt: &Formatter,
         input: &'a str,
     ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
-        let (input, _) = tag("combine ")(input)?;
+        let (input, _) = tag("cmb ")(input)?;
         or_fail(|input| {
             let (input, id_a) = map_parser(is_not("("), Self::parse_id)(input)?;
             let (input, _) = tag("(")(input)?;
@@ -197,7 +197,7 @@ impl Command {
         fmt: &Formatter,
         input: &'a str,
     ) -> IResult<&'a str, Command, GreedyError<&'a str>> {
-        let (input, _) = tag("axiom { ")(input)?;
+        let (input, _) = tag("axm { ")(input)?;
         or_fail(|input| {
             let (input, theorem) =
                 map_parser(take_until(" }"), |input| fmt.parse_theorem(input))(input)?;
@@ -216,13 +216,13 @@ impl Command {
     }
 
     fn parse_judgement<'a>(input: &'a str) -> IResult<&'a str, Command, GreedyError<&'a str>> {
-        let (input, _) = tag("judgement ")(input)?;
+        let (input, _) = tag("jdg ")(input)?;
         let (input, judgement) = rest(input)?;
         Ok((input, Command::Judgement(judgement.to_owned())))
     }
 
     fn parse_operator<'a>(input: &'a str) -> IResult<&'a str, Command, GreedyError<&'a str>> {
-        let (input, _) = tag("operator ")(input)?;
+        let (input, _) = tag("opr ")(input)?;
         let (input, operator) = take_until(" ")(input)?;
         let (input, _) = char(' ')(input)?;
         let (input, arity) = map_opt(digit1, |s: &str| s.parse::<u8>().ok())(input)?;
@@ -241,7 +241,7 @@ impl Command {
     pub fn serialize(&self, s: &mut String, fmt: &Formatter) {
         match self {
             Command::Proof(Proof::Simplify(id, a, b), theorem, name) => {
-                s.push_str("simplify ");
+                s.push_str("smp ");
                 self.serialize_id(s, id);
                 s.push_str(" (");
                 fmt.format_variable(s, *a);
@@ -258,7 +258,7 @@ impl Command {
                 }
             }
             Command::Proof(Proof::Combine(id_a, id_b, index), theorem, name) => {
-                s.push_str("combine ");
+                s.push_str("cmb ");
                 self.serialize_id(s, id_a);
                 write!(s, "({}) <- ", index + 1).unwrap();
                 self.serialize_id(s, id_b);
@@ -272,7 +272,7 @@ impl Command {
                 }
             }
             Command::Proof(Proof::Axiom(theorem), _, name) => {
-                s.push_str("axiom { ");
+                s.push_str("axm { ");
                 fmt.format_theorem(s, theorem);
                 s.push_str(" }");
                 if let Some(name) = name {
@@ -280,10 +280,10 @@ impl Command {
                 }
             }
             Command::Judgement(judgement) => {
-                write!(s, "judgement {}", judgement).unwrap();
+                write!(s, "jdg {}", judgement).unwrap();
             }
             Command::Operator(operator, arity) => {
-                write!(s, "operator {} {}", operator, arity).unwrap();
+                write!(s, "opr {} {}", operator, arity).unwrap();
             }
         }
     }
@@ -436,15 +436,15 @@ mod tests {
         let s = serialize_database(&fmt, &database);
         assert_eq!(
             s,
-            r#"judgement |-
-operator A 0
-operator B 0
-operator C 0
-axiom { |- A }
-axiom { |- B }: b
-axiom { |- A, |- B => |- C }: abc
-combine abc(1) <- b.1
-combine $(1) <- b { |- C }: c
+            r#"jdg |-
+opr A 0
+opr B 0
+opr C 0
+axm { |- A }
+axm { |- B }: b
+axm { |- A, |- B => |- C }: abc
+cmb abc(1) <- b.1
+cmb $(1) <- b { |- C }: c
 "#
         );
 
@@ -456,33 +456,33 @@ combine $(1) <- b { |- C }: c
 
     #[test]
     fn id() {
-        let s = r#"judgement wff
-judgement |-
-operator -> 2
-operator -. 1
-axiom { wff a => wff (-. a) }: wn
-axiom { wff a, wff b => wff (a -> b) }: wi
-axiom { wff a, wff b, |- a, |- (a -> b) => |- b }: ax-mp
-axiom { wff a, wff b => |- (a -> (b -> a)) }: ax-1
-axiom { wff a, wff b, wff c => |- ((a -> (b -> c)) -> ((a -> b) -> (a -> c))) }: ax-2
-axiom { wff a, wff b => |- (((-. a) -> (-. b)) -> (b -> a)) }: ax-3
-combine ax-mp(1) <- wi
-combine $(3) <- wi
-combine $(1) <- wi
-combine $(1) <- wi
-combine $(3) <- wi
-combine $(9) <- ax-2 { wff a, wff b, wff c, |- (a -> (b -> c)) => |- ((a -> b) -> (a -> c)) }: a2i
-combine ax-mp(1) <- wi
-combine $(1) <- wi
-combine $(6) <- a2i { wff a, wff b, wff c, |- (a -> b), |- (a -> (b -> c)) => |- (a -> c) }: mpd
-simplify ax-1 (a ~ b)
-combine mpd(2) <- wi
-combine $(5) <- 1
-combine ax-1(2) <- wi
-simplify $ (a ~ b)
-simplify $ (a ~ b)
-simplify $ (a ~ b)
-combine 3(3) <- $ { wff a => |- (a -> a) }: id
+        let s = r#"jdg wff
+jdg |-
+opr -> 2
+opr -. 1
+axm { wff a => wff (-. a) }: wn
+axm { wff a, wff b => wff (a -> b) }: wi
+axm { wff a, wff b, |- a, |- (a -> b) => |- b }: ax-mp
+axm { wff a, wff b => |- (a -> (b -> a)) }: ax-1
+axm { wff a, wff b, wff c => |- ((a -> (b -> c)) -> ((a -> b) -> (a -> c))) }: ax-2
+axm { wff a, wff b => |- (((-. a) -> (-. b)) -> (b -> a)) }: ax-3
+cmb ax-mp(1) <- wi
+cmb $(3) <- wi
+cmb $(1) <- wi
+cmb $(1) <- wi
+cmb $(3) <- wi
+cmb $(9) <- ax-2 { wff a, wff b, wff c, |- (a -> (b -> c)) => |- ((a -> b) -> (a -> c)) }: a2i
+cmb ax-mp(1) <- wi
+cmb $(1) <- wi
+cmb $(6) <- a2i { wff a, wff b, wff c, |- (a -> b), |- (a -> (b -> c)) => |- (a -> c) }: mpd
+smp ax-1 (a ~ b)
+cmb mpd(2) <- wi
+cmb $(5) <- 1
+cmb ax-1(2) <- wi
+smp $ (a ~ b)
+smp $ (a ~ b)
+smp $ (a ~ b)
+cmb 3(3) <- $ { wff a => |- (a -> a) }: id
 "#;
         let mut fmt = Formatter::new();
         match parse_database(&mut fmt, s) {
