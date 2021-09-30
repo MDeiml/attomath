@@ -10,11 +10,11 @@ use nom::{
     IResult,
 };
 
-use crate::{
-    database::{Database, DatabaseError, Proof},
+use crate::Theorem;
+
+use super::{
     error::{or_fail, GreedyError},
-    formatter::Formatter,
-    Theorem,
+    Database, DatabaseError, Formatter, Proof,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -321,7 +321,7 @@ impl Command {
 #[cfg(test)]
 mod tests {
 
-    use crate::{command::Command, Identifier};
+    use crate::Identifier;
 
     use super::*;
 

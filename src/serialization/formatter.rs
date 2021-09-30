@@ -11,7 +11,6 @@ use nom::{
 // TODO
 use crate::{
     dvr::DVR,
-    error::GreedyError,
     expression::{is_operator, Expression},
     statement::Statement,
     theorem::Theorem,
@@ -20,6 +19,8 @@ use crate::{
 };
 use std::borrow::Borrow;
 use std::fmt::Write;
+
+use super::error::GreedyError;
 
 /// ```
 /// use attomath::formatter::Formatter;

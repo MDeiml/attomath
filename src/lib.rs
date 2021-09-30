@@ -56,14 +56,10 @@ extern crate nom;
 #[macro_use]
 extern crate quickcheck;
 
-pub mod command;
-#[cfg(feature = "serialization")]
-pub mod database;
 mod dvr;
 pub mod error;
 pub mod expression;
-#[cfg(feature = "serialization")]
-pub mod formatter;
+pub mod serialization;
 mod statement;
 mod theorem;
 mod types;

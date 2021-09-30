@@ -4,28 +4,9 @@ use std::{
 };
 
 use attomath::{
-    command::Command,
-    database::{Database, Proof},
-    formatter::Formatter,
+    serialization::{Command, Database, DatabaseError, Formatter, Proof},
     Expression,
 };
-
-// fn parse_database<'a>(
-//     fmt: &mut Formatter,
-//     input: &'a str,
-// ) -> Result<Database, (&'a str, Error<'a>)> {
-//     let mut database = Database::new();
-//     for line in input.lines() {
-//         (|| {
-//             let command = Command::parse(&fmt, line)?;
-
-//             command.apply(fmt, &mut database)?;
-//             Ok(())
-//         })()
-//         .map_err(|e| (line, e))?;
-//     }
-//     Ok(database)
-// }
 
 fn main() {
     let filename = std::env::args().nth(1).unwrap();
@@ -50,18 +31,16 @@ fn main() {
             Err(err) => {
                 eprint!("Error in line {}: ", line_number);
                 match err {
-                    attomath::database::DatabaseError::TheoremNotFound(name, id) => {
-                        match (name, id) {
-                            (Some(name), Some(id)) => eprint!("theorem {}.{} not found", name, id),
-                            (Some(name), None) => eprintln!("theorem {} not found", name),
-                            (None, Some(id)) => eprint!("theorem {} not found", id),
-                            (None, None) => eprintln!("theorem $ not found"),
-                        }
-                    }
-                    attomath::database::DatabaseError::NameCollision(name) => {
+                    DatabaseError::TheoremNotFound(name, id) => match (name, id) {
+                        (Some(name), Some(id)) => eprint!("theorem {}.{} not found", name, id),
+                        (Some(name), None) => eprintln!("theorem {} not found", name),
+                        (None, Some(id)) => eprint!("theorem {} not found", id),
+                        (None, None) => eprintln!("theorem $ not found"),
+                    },
+                    DatabaseError::NameCollision(name) => {
                         eprintln!("{} already defined", name)
                     }
-                    attomath::database::DatabaseError::TheoremMismatch(theorem_a, theorem_b) => {
+                    DatabaseError::TheoremMismatch(theorem_a, theorem_b) => {
                         eprintln!("theorem mismatch");
                         let mut sa = String::new();
                         fmt.format_theorem(&mut sa, &theorem_a);
@@ -70,7 +49,7 @@ fn main() {
                         eprintln!("expected: {}", sb);
                         eprintln!("   found: {}", sa);
                     }
-                    attomath::database::DatabaseError::ProofError(err) => {
+                    DatabaseError::ProofError(err) => {
                         let (id_a, id_b, index) = match command {
                             Command::Proof(Proof::Combine(id_a, id_b, index), _, _) => {
                                 (id_a, id_b, index)
