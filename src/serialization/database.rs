@@ -127,7 +127,8 @@ impl Database {
         let new_theorem = match proof {
             Proof::Simplify(id, a, b) => {
                 let theorem = &self.theorems[id].0;
-                let mut new_theorem = theorem.substitute(&SingleSubstitution::new(a, b))?;
+                let mut new_theorem =
+                    theorem.substitute(&SingleSubstitution::new(a, b).unwrap())?;
                 new_theorem.standardize();
                 new_theorem
             }

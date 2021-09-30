@@ -5,6 +5,14 @@ use std::{
     ops::RangeBounds,
 };
 
+/// A `Expression` is a binary tree with nodes called "operators" and leafs which called
+/// "variables".
+///
+/// The exception to this is the special leaf `Identifier::MIN` which is an operator
+/// and used as a "terminator" two allow for operators with arity 1 or less.
+///
+/// The expression is encoded by prefix orderinto a sequence of [`Identifier`]s which can be both
+/// variables and operators (see [`is_operator`]).
 #[derive(Clone, Eq, Ord, Debug, Copy)]
 pub struct Expression<T: Borrow<[Identifier]>> {
     data: T,
@@ -18,7 +26,8 @@ impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialEq<Expression<S>> 
 
 impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialOrd<Expression<S>> for Expression<T> {
     fn partial_cmp(&self, other: &Expression<S>) -> Option<Ordering> {
-        // code is safe, because i16 and u16 have the same memory layout
+        // This code is safe, because i16 and u16 have the same memory layout.
+        // The conversion is done to have operators be larger than variables.
         unsafe {
             let a: &[i16] = self.data.borrow();
             let a_transmuted: &[u16] = std::mem::transmute(a);
@@ -37,7 +46,7 @@ impl<T: BorrowMut<[Identifier]>> Expression<T> {
     /// ```
     /// use attomath::expression::Expression;
     ///
-    /// let mut s = Expression::from_raw(vec![-2, -2, 2, 0, 2]).unwrap();
+    /// let mut s = Expression::from_raw([-2, -2, 2, 0, 2]).unwrap();
     /// let mut var_map = vec![None; 6];
     /// var_map[2] = Some(3);
     /// let mut next_var = 5;
@@ -83,16 +92,20 @@ impl<T: BorrowMut<[Identifier]>> Expression<T> {
 }
 
 impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
+    /// The internal encoding in prefix order
     pub fn data<'a>(&'a self) -> &'a T {
         &self.data
     }
 
+    /// Borrow this expressions contents
     pub fn to_slice<'a>(&'a self) -> Expression<&'a [Identifier]> {
         Expression {
             data: self.data.borrow(),
         }
     }
 
+    /// Create a expression from its prefix order encoding. This checks if the given sequence
+    /// encodes a binary tree and returns `None` if it does not.
     pub fn from_raw(expr: T) -> Option<Self> {
         if Self::check(&expr) {
             Some(Expression { data: expr })
@@ -101,6 +114,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
         }
     }
 
+    /// Convencience function to iterate over this expressions variables. May contain duplicates.
     pub fn variables<'a>(&'a self) -> impl Iterator<Item = Identifier> + 'a {
         self.data
             .borrow()
@@ -118,7 +132,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     /// ```
     /// use attomath::expression::Expression;
     ///
-    /// let st = Expression::from_raw(vec![-2, 0, -2, 1, 0]).unwrap();
+    /// let st = Expression::from_raw([-2, 0, -2, 1, 0]).unwrap();
     /// assert_eq!(*st.subexpression(2).data(), &[-2, 1, 0]);
     /// assert_eq!(*st.subexpression(3).data(), &[1]);
     /// ```
@@ -146,15 +160,15 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     /// use attomath::expression::{Expression, WholeSubstitution};
     /// use attomath::error::ProofError;
     ///
-    /// let a = Expression::from_raw(vec![-2, 0, -2, 1, 0]).unwrap();
-    /// let b = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// let a = Expression::from_raw([-2, 0, -2, 1, 0]).unwrap();
+    /// let b = Expression::from_raw([-2, 0, 1]).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// let result = a.unify(&b, &mut sub); // (x0 ~> x0, x1 ~> (x1 -> x0))
     /// assert_eq!(result, Ok(()));
     /// assert_eq!(b.substitute(&sub), a);
     ///
-    /// let a = Expression::from_raw(vec![-2, 0, -2, 1, 0]).unwrap();
-    /// let b = Expression::from_raw(vec![-2, 0, 0]).unwrap();
+    /// let a = Expression::from_raw([-2, 0, -2, 1, 0]).unwrap();
+    /// let b = Expression::from_raw([-2, 0, 0]).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// let result = a.unify(&b, &mut sub); // (x0 ~> x0, x0 ~> (x1 -> x0))
     /// assert_eq!(result, Err(ProofError::VariableMismatch(
@@ -163,8 +177,8 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     ///     vec![-2, 1, 0].into_boxed_slice(),
     /// )));
     ///
-    /// let a = Expression::from_raw(vec![-3, 0, -2, 1, 0]).unwrap();
-    /// let b = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// let a = Expression::from_raw([-3, 0, -2, 1, 0]).unwrap();
+    /// let b = Expression::from_raw([-2, 0, 1]).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// let result = a.unify(&b, &mut sub);
     /// assert_eq!(result, Err(ProofError::OperatorMismatch(-3, -2)));
@@ -218,7 +232,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     /// use attomath::expression::{Expression, WholeSubstitution};
     ///
     /// let mut sub = WholeSubstitution::with_capacity(2);
-    /// let expr = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// let expr = Expression::from_raw([-2, 0, 1]).unwrap();
     /// sub.insert(0, expr.to_slice());
     /// assert_eq!(*expr.substitute(&sub).to_slice().data(), &[-2, -2, 0, 1, 1]);
     /// ```
@@ -266,7 +280,10 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Expression<T> {
     }
 }
 
-/// Tests whether the given identifier is an operator
+/// Tests whether the given identifier is an operator.
+///
+/// Operators occupy the range `(Identifier::MIN ..= -1)`.
+/// The special value `Identifier::MIN` is also an operator.
 ///
 /// # Example
 /// ```
@@ -280,6 +297,9 @@ pub fn is_operator(x: Identifier) -> bool {
     x < 0
 }
 
+/// A substion to combine two other substitutions.
+///
+/// Tries to use `first` first and uses `then` if the variable did not get substituted by `first`.
 pub struct ChainSubstitution<S: Substitution, T: Substitution> {
     pub first: S,
     pub then: T,
@@ -318,6 +338,7 @@ impl<S: Substitution, T: Substitution> Substitution for ChainSubstitution<S, T> 
     }
 }
 
+/// Substitutes variables by shifting them to the right by the given ammount
 pub struct ShiftSubstitution {
     shift: Identifier,
 }
@@ -325,7 +346,7 @@ pub struct ShiftSubstitution {
 impl ShiftSubstitution {
     pub fn new(shift: Identifier) -> Self {
         if shift < 0 {
-            panic!("shift must be greater than zero");
+            panic!("shift must be nonnegative");
         }
         ShiftSubstitution { shift }
     }
@@ -344,7 +365,7 @@ impl Substitution for ShiftSubstitution {
     }
 }
 
-/// A general [`Substitution`](trait.Substitution.html)
+/// A general substitution
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WholeSubstitution<'a> {
     substitution: Vec<Option<Expression<&'a [Identifier]>>>,
@@ -368,7 +389,7 @@ impl<'a> WholeSubstitution<'a> {
     /// ```
     /// use attomath::expression::{Expression, Substitution, WholeSubstitution};
     ///
-    /// let expr = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// let expr = Expression::from_raw([-2, 0, 1]).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// sub.insert(0, expr.to_slice());
     /// assert_eq!(sub.substitution_opt(0), Some(expr.to_slice()));
@@ -387,15 +408,19 @@ impl<'a> Substitution for WholeSubstitution<'a> {
     }
 }
 
-/// A single variable [`Substitution`](trait.Substitution.html)
+/// A single variable substitution
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingleSubstitution(Identifier, Identifier);
 
 impl SingleSubstitution {
-    /// Creates a substitution with the capacity to store replacements for variables `0` to
-    /// `n - 1`.
-    pub fn new(a: Identifier, b: Identifier) -> Self {
-        SingleSubstitution(a, b)
+    /// Create a new substitution to rename one variable.
+    ///
+    /// Returns `None` if one of the identifiers is not a variable (see [is_operator]).
+    pub fn new(a: Identifier, b: Identifier) -> Option<Self> {
+        if is_operator(a) || is_operator(b) {
+            return None;
+        }
+        Some(SingleSubstitution(a, b))
     }
 }
 
@@ -411,15 +436,24 @@ impl Substitution for SingleSubstitution {
     }
 }
 
-/// A complete variable [`Substitution`](trait.Substitution.html)
+/// A complete variable substitution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariableSubstitution<T: Borrow<[Option<Identifier>]>>(T);
 
 impl<T: Borrow<[Option<Identifier>]>> VariableSubstitution<T> {
     /// Creates a substitution with the capacity to store replacements for variables `0` to
     /// `n - 1`.
-    pub fn new(variables: T) -> Self {
-        VariableSubstitution(variables)
+    ///
+    /// Returns none if a identifier in `variables` is not a variable (see [is_operator]).
+    pub fn new(variables: T) -> Option<Self> {
+        for var in variables.borrow() {
+            if let Some(var) = var {
+                if is_operator(*var) {
+                    return None;
+                }
+            }
+        }
+        Some(VariableSubstitution(variables))
     }
 }
 
@@ -427,14 +461,13 @@ impl<S: Borrow<[Option<Identifier>]>> Substitution for VariableSubstitution<S> {
     type T = [Identifier; 1];
 
     fn substitution_opt(&self, id: Identifier) -> Option<Expression<[Identifier; 1]>> {
-        // TODO: Check variable is variable
         self.0.borrow()[id as usize].map(|v| Expression { data: [v] })
     }
 }
 
 /// A `Substitution` maps variable ids to expressions (represented by a sequence of identifiers).
 ///
-/// This is intented to be used together with [`Expression`s](struct.Expression.html).
+/// This is intented to be used together with [`Expression`]s.
 pub trait Substitution {
     type T: Borrow<[Identifier]> + std::fmt::Debug;
 
@@ -448,7 +481,7 @@ pub trait Substitution {
     /// ```
     /// use attomath::expression::{Substitution, WholeSubstitution, Expression};
     ///
-    /// let expr = Expression::from_raw(vec![-2, 0, 1]).unwrap();
+    /// let expr = Expression::from_raw([-2, 0, 1]).unwrap();
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// sub.insert(0, expr.to_slice());
     /// assert_eq!(sub.substitution_opt(0), Some(expr.to_slice()));
@@ -487,6 +520,13 @@ mod tests {
                 Ok(()) => b.substitute(&substitution) == a,
                 Err(_) => true
             }
+        }
+
+        fn from_raw_single_variable(a: Identifier) -> bool {
+            if is_operator(a) {
+                return true;
+            }
+            Expression::from_raw([a]).is_some()
         }
     }
 }

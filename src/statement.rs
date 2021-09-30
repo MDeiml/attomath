@@ -8,20 +8,25 @@ use std::borrow::Borrow;
 /// Type alias for a statement that owns its expression
 pub type OwnedStatement = Statement<Box<[Identifier]>>;
 
-/// A a combination of a judgement and an `Expression`, for example _x0 -> x0 is provable_
+/// A a combination of a [`Judgement`] and an [`Expression`], for example _x0 -> x0 is provable_
 ///
 /// The __judgement__ is given in form of an integer, but often represents some meaning, like _this
 /// expression is provable_ or _this expression is syntactically correct_.
-#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Debug)]
+#[derive(Eq, Clone, PartialOrd, Ord, Debug)]
 pub struct Statement<T: Borrow<[Identifier]>> {
     pub judgement: Judgement,
     pub expression: Expression<T>,
 }
 
+impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialEq<Statement<S>> for Statement<T> {
+    fn eq(&self, other: &Statement<S>) -> bool {
+        self.judgement == other.judgement && self.expression == other.expression
+    }
+}
+
 impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
-    // TODO: Remove weird eq from example
     /// Convenience function for unifying the expressions of two judgements (see
-    /// [`Expression::unify`](../expression/struct.Expression.html#method.unify)).
+    /// [`Expression::unify`])
     ///
     /// # Errors
     /// * `JudgementMismatch` - if `self.judgement != other.judgement`
@@ -36,20 +41,20 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
     ///
     /// let st1 = Statement {
     ///     judgement: 0,
-    ///     expression: Expression::from_raw(vec![-2, 0, -2, 1, 0].into_boxed_slice()).unwrap()
+    ///     expression: Expression::from_raw([-2, 0, -2, 1, 0]).unwrap()
     /// };
     /// let st2 = Statement {
     ///     judgement: 0,
-    ///     expression: Expression::from_raw(vec![-2, 0, 1]).unwrap()
+    ///     expression: Expression::from_raw([-2, 0, 1]).unwrap()
     /// };
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// let res = st1.unify(&st2, &mut sub);
-    /// assert_eq!(res, Ok(()));
+    /// assert!(res.is_ok());
     /// assert_eq!(st2.substitute(&sub), st1);
     ///
     /// let st2 = Statement {
     ///     judgement: 1,
-    ///     expression: Expression::from_raw(vec![-2, 0, 1]).unwrap()
+    ///     expression: Expression::from_raw([-2, 0, 1]).unwrap()
     /// };
     /// let mut sub = WholeSubstitution::with_capacity(2);
     /// let res = st1.unify(&st2, &mut sub);
@@ -71,7 +76,7 @@ impl<T: Borrow<[Identifier]> + std::fmt::Debug> Statement<T> {
     }
 
     /// Convenience function for using a `Substitution` on this statements expression (see
-    /// [`Expression::substitute`](../expression/struct.Expression.html#method.substitute))
+    /// [`Expression::substitute`])
     pub fn substitute<S: Substitution>(&self, substitution: &S) -> Statement<Box<[Identifier]>> {
         Statement {
             judgement: self.judgement,

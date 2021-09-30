@@ -23,7 +23,7 @@ use std::fmt::Write;
 use super::error::GreedyError;
 
 /// ```
-/// use attomath::formatter::Formatter;
+/// use attomath::serialization::Formatter;
 /// use attomath::Expression;
 /// use attomath::Theorem;
 /// use attomath::Statement;

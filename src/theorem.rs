@@ -11,7 +11,7 @@ use crate::{
     types::*,
 };
 
-/// A theorem consisting of zero or more [`DVR`s](../dvr/struct.DVR.html) or __assumptions__
+/// A theorem consisting of zero or more [`DVR`] or __assumptions__
 /// and a __conclusion__
 ///
 /// A theorem could represent something like _if x0 is provable and (x0 -> x1) is provable then b
@@ -19,9 +19,8 @@ use crate::{
 /// would be _x1_.
 ///
 /// When using this struct it is guaranteed that only valid theorems can be constructed (using
-/// [`substitute`](#method.substitute), [`combine`](#method.combine) and
-/// [`standardize`](#method.standardize)) provided that only valid theorems (or axioms) are
-/// constructed using [`new`](#method.new).
+/// [`Theorem::substitute`], [`Theorem::combine`] and [`Theorem::standardize`]) provided that only valid theorems (or axioms)
+/// are constructed using [`Theorem::new`].
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 pub struct Theorem {
     conclusion: OwnedStatement,
@@ -62,8 +61,7 @@ impl Theorem {
 
     /// Turns this theorem into its standard representation, numbering variables in the order of
     /// their apperance and sorting the assumptions and dvrs (see
-    /// [`Expression::standardize`](../expression/struct.Expression.html#method.standardize) and
-    /// [`DVR::standardize`](../dvr/struct.DVR.html#method.standardize)).
+    /// [`Expression::standardize`][crate::Expression::standardize]).
     ///
     /// It holds, that applying standardize twice is the same as applying it once. Two theorems are
     /// logically "equal", that is they can be constructed from each other by reordering
@@ -200,7 +198,7 @@ impl Theorem {
         // the DVRs accordingly.
         for dvr in self.dvrs.iter_mut() {
             *dvr = dvr
-                .substitute(&VariableSubstitution::new(var_maps[0].as_slice()))
+                .substitute(&VariableSubstitution::new(var_maps[0].as_slice()).unwrap())
                 .next()
                 .unwrap()
                 .unwrap();
@@ -211,8 +209,7 @@ impl Theorem {
     }
 
     /// Returns the variable with the biggest identifier occuring in this theorem. This can be used
-    /// together with
-    /// [`WholeSubstitution::with_capacity`](../expression/struct.WholeSubstitution.html#method.with_capacity)
+    /// together with [`WholeSubstitution::with_capacity`].
     pub fn max_var(&self) -> Identifier {
         self.conclusion
             .expression
@@ -229,12 +226,7 @@ impl Theorem {
     }
 
     /// Uses the given substitution on this theorem's assumptions, dvrs and conclusion to create a
-    /// new theorem. (see
-    /// [`Statement::substitute`](../statement/struct.Statement.html#method.substitute) and
-    /// [`DVR::substitute`](../dvr/struct.DVR.html#method.substitute))
-    ///
-    /// This function and the functions it calls are the only ones, that need to be trusted to be
-    /// sure, that only provable theorems can be proven.
+    /// new theorem. (see [`Statement::substitute`][crate::Statement::substitute], [`DVR::substitute`])
     ///
     /// # Errors
     /// This method can return a `DVRError` if the substitution violates one of this theorem's
@@ -285,7 +277,7 @@ impl Theorem {
     /// This can product the following errors:
     /// * `OperatorMismatch`, `VariableMismatch` or `JudgementMismatch` - if the conclusion of
     /// `other` cannot be unified with the specified assumption (see
-    /// [`Statement::unify`](../statement/struct.Statement.html#method.unify))
+    /// [`Statement::unify`][crate::Statement::unify])
     /// * `DVRError`- if the substitution needed to transform the conclusion of `other` into the
     /// specified assumption violates one of this theorems' `DVR`s
     ///
