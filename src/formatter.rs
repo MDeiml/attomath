@@ -43,7 +43,7 @@ use std::fmt::Write;
 ///     },
 ///     Statement {
 ///         judgement: 0,
-///         expression: Expression::from_raw(vec![-2, 0, 1].into_boxed_slice()).unwrap(),
+///         expression: Expression::from_raw(vec![-1, 0, 1].into_boxed_slice()).unwrap(),
 ///     }
 /// ];
 /// let dvrs = vec![DVR::new(0, 1).unwrap()];
@@ -101,7 +101,7 @@ impl Formatter {
         if id == Identifier::MIN {
             return;
         }
-        let (symb, arity) = self.operators[(-id - 2) as usize].clone();
+        let (symb, arity) = self.operators[(-id - 1) as usize].clone();
         if arity == 0 {
             write!(s, "{}", symb).unwrap();
         } else if arity == 1 {
@@ -136,7 +136,7 @@ impl Formatter {
             Ok((
                 input,
                 Expression::from_raw(
-                    vec![-(o as Identifier) - 2, Identifier::MIN, Identifier::MIN]
+                    vec![-(o as Identifier) - 1, Identifier::MIN, Identifier::MIN]
                         .into_boxed_slice(),
                 )
                 .unwrap(),
@@ -154,7 +154,7 @@ impl Formatter {
             let (input, left) = self.parse_expression(input)?;
             let (input, _) = char(')')(input)?;
             let mut data = Vec::with_capacity(left.data().len() + 2);
-            data.push(-(o as Identifier) - 2);
+            data.push(-(o as Identifier) - 1);
             data.extend_from_slice(left.data());
             data.push(Identifier::MIN);
             // TODO: remove unwrap
@@ -177,7 +177,7 @@ impl Formatter {
             let (input, right) = self.parse_expression(input)?;
             let (input, _) = char(')')(input)?;
             let mut data = Vec::with_capacity(left.data().len() + right.data().len() + 1);
-            data.push(-(o as Identifier) - 2);
+            data.push(-(o as Identifier) - 1);
             data.extend_from_slice(left.data());
             data.extend_from_slice(right.data());
             // TODO: remove unwrap

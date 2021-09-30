@@ -17,7 +17,7 @@ use crate::{
     Theorem,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Command {
     Proof(
         Proof<(Option<String>, Option<usize>)>,
@@ -368,6 +368,7 @@ mod tests {
         }
         Ok(database)
     }
+
     #[test]
     fn a_b_c() {
         use crate::{expression::Expression, statement::Statement};
@@ -376,21 +377,21 @@ mod tests {
         let a = Statement {
             judgement: 0,
             expression: Expression::from_raw(
-                vec![-2, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+                vec![-1, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
             )
             .unwrap(),
         };
         let b = Statement {
             judgement: 0,
             expression: Expression::from_raw(
-                vec![-3, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+                vec![-2, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
             )
             .unwrap(),
         };
         let c = Statement {
             judgement: 0,
             expression: Expression::from_raw(
-                vec![-4, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
+                vec![-3, Identifier::MIN, Identifier::MIN].into_boxed_slice(),
             )
             .unwrap(),
         };
