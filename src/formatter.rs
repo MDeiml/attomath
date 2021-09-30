@@ -57,6 +57,7 @@ use std::fmt::Write;
 /// assert_eq!(remaining, "");
 /// assert_eq!(theorem1, theorem);
 /// ```
+#[derive(Debug, PartialEq, Eq)]
 pub struct Formatter {
     operators: Vec<(String, u8)>,
     judgements: Vec<String>,
@@ -68,6 +69,16 @@ impl Formatter {
             operators: Vec::new(),
             judgements: Vec::new(),
         }
+    }
+
+    pub fn operators(&self) -> impl Iterator<Item = (&str, u8)> {
+        self.operators
+            .iter()
+            .map(|(operator, arity)| (operator.as_str(), *arity))
+    }
+
+    pub fn judgements(&self) -> impl Iterator<Item = &str> {
+        self.judgements.iter().map(|judgement| judgement.as_str())
     }
 
     pub fn add_operator(&mut self, operator: String, arity: u8) {

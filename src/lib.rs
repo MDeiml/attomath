@@ -56,6 +56,7 @@ extern crate nom;
 #[macro_use]
 extern crate quickcheck;
 
+pub mod command;
 #[cfg(feature = "serialization")]
 pub mod database;
 mod dvr;
