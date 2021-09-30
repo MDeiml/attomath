@@ -75,7 +75,7 @@ impl Theorem {
         // first number the variables of the conclusion in order
         self.conclusion
             .expression
-            .standardize(&mut var_map, &mut next_var);
+            .standardize_range(&mut var_map, &mut next_var, ..);
 
         // remove duplicate assumptions
         // TODO: maybe move this into combine / simplify
@@ -96,10 +96,7 @@ impl Theorem {
             .drain(..)
             .map(|assumption| {
                 let mut normalized = assumption;
-                normalized.expression.standardize(
-                    &mut vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0],
-                    &mut 0,
-                );
+                normalized.expression.standardize();
                 normalized
             })
             .collect::<Vec<_>>();
@@ -117,7 +114,7 @@ impl Theorem {
         for (assumption, _) in indexed_assumptions.iter_mut() {
             assumption
                 .expression
-                .standardize(&mut var_map, &mut temp_next_var);
+                .standardize_range(&mut var_map, &mut temp_next_var, ..);
         }
 
         // we have to forget the variable map we just computed, but not the variables that are also

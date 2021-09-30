@@ -2,6 +2,7 @@ use crate::{error::ProofError, types::*};
 use std::{
     borrow::{Borrow, BorrowMut},
     cmp::Ordering,
+    num::Wrapping,
     ops::RangeBounds,
 };
 
@@ -38,7 +39,7 @@ impl<T: Borrow<[Identifier]>, S: Borrow<[Identifier]>> PartialOrd<Expression<S>>
     }
 }
 
-impl<T: BorrowMut<[Identifier]>> Expression<T> {
+impl<T: BorrowMut<[Identifier]> + std::fmt::Debug> Expression<T> {
     /// Turns this expression into its standard representation, numbering variables in the order of
     /// their apperance.
     ///
@@ -47,16 +48,14 @@ impl<T: BorrowMut<[Identifier]>> Expression<T> {
     /// use attomath::expression::Expression;
     ///
     /// let mut s = Expression::from_raw([-2, -2, 2, 0, 2]).unwrap();
-    /// let mut var_map = vec![None; 6];
-    /// var_map[2] = Some(3);
-    /// let mut next_var = 5;
-    /// s.standardize(&mut var_map, &mut next_var);
-    /// assert_eq!(s.data(), &[-2, -2, 3, 5, 3]);
-    /// assert_eq!(var_map, vec![Some(5), None, Some(3), None, None, None]);
-    /// assert_eq!(next_var, 6);
+    /// s.standardize();
+    /// assert_eq!(s.data(), &[-2, -2, 0, 1, 0]);
     /// ```
-    pub fn standardize(&mut self, var_map: &mut [Option<Identifier>], next_var: &mut Identifier) {
-        self.standardize_range(var_map, next_var, ..);
+    pub fn standardize(&mut self) {
+        let max_var = self.variables().max().unwrap_or(-1);
+        let mut var_map = vec![None; (Wrapping(max_var as usize) + Wrapping(1)).0];
+        let mut next_var = 0;
+        self.standardize_range(&mut var_map, &mut next_var, ..);
     }
 
     pub(crate) fn standardize_range<R: RangeBounds<Identifier>>(
