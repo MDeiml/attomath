@@ -1,0 +1,27 @@
+jdg wff
+jdg |-
+opr -> 2
+opr -. 1
+axm { wff a => wff (-. a) }: wn
+axm { wff a, wff b => wff (a -> b) }: wi
+axm { wff a, wff b, |- a, |- (a -> b) => |- b }: ax-mp
+axm { wff a, wff b => |- (a -> (b -> a)) }: ax-1
+axm { wff a, wff b, wff c => |- ((a -> (b -> c)) -> ((a -> b) -> (a -> c))) }: ax-2
+axm { wff a, wff b => |- (((-. a) -> (-. b)) -> (b -> a)) }: ax-3
+cmb ax-mp(1) <- wi
+cmb $(3) <- wi
+cmb $(1) <- wi
+cmb $(1) <- wi
+cmb $(3) <- wi
+cmb $(9) <- ax-2 { wff a, wff b, wff c, |- (a -> (b -> c)) => |- ((a -> b) -> (a -> c)) }: a2i
+cmb ax-mp(1) <- wi
+cmb $(1) <- wi
+cmb $(6) <- a2i { wff a, wff b, wff c, |- (a -> b), |- (a -> (b -> c)) => |- (a -> c) }: mpd
+smp ax-1 (a ~ b)
+cmb mpd(2) <- wi
+cmb $(5) <- 1
+cmb ax-1(2) <- wi
+smp $ (a ~ b)
+smp $ (a ~ b)
+smp $ (a ~ b)
+cmb 3(3) <- $ { wff a => |- (a -> a) }: id
