@@ -2,7 +2,7 @@
 name = "attomath"
 version = "0.1.0"
 authors = ["Matthias Deiml <matthias@deiml.net>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 default = ['serialization']
@@ -10,7 +10,7 @@ default = ['serialization']
 serialization = ['nom']
 
 [dependencies]
-nom = {version = "7.0", optional = true}
+nom = { version = "7.0", optional = true }
 
 [dev-dependencies]
 quickcheck = "1.0"
